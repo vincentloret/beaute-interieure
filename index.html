@@ -50,6 +50,7 @@ body {
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .state[data-s="ok"] .dot { background: var(--accent); }
 .state[data-s="search"] .dot { background: var(--warn); }
+.state[data-s="hand"] .dot { background: var(--warn); }
 .state[data-s="err"] .dot { background: var(--muscle); }
 
 .stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
@@ -114,7 +115,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.7</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.8</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -153,7 +154,7 @@ button { line-height: 1.2; }
 </div>
 
 <script type="module">
-import { FilesetResolver, PoseLandmarker } from "./vision_bundle.mjs";
+import { HandLandmarker, PoseLandmarker } from "./vision_bundle.mjs";
 
 const $ = (id) => document.getElementById(id);
 const canvas = $("view"), ctx = canvas.getContext("2d");
@@ -175,10 +176,10 @@ const S = {
   paused: false, stream: null,
   m: null,                 // métriques
 };
-let landmarker = null, mode = null, rafId = 0, lastVideoTime = -1;
+let landmarker = null, handLandmarker = null, mode = null, rafId = 0, lastVideoTime = -1;
 
 function resetMetrics() {
-  S.stable = 0; S.reject = "";
+  S.stable = 0; S.reject = ""; S.handBoxes = []; S.handWait = Infinity; S.handMs = null;
   S.m = { start: performance.now(), frames: 0, found: 0, first: null, visSum: 0, fpsT: performance.now(), fpsN: 0, fps: 0 };
 }
 resetMetrics();
@@ -210,6 +211,17 @@ async function initLandmarker() {
     S.engine = landmarker.detect(workFrame(probe, pw, ph)).landmarks.length > 0 ? "CPU" : "CPU (test échoué)";
   }
   mode = "IMAGE";
+}
+// le modèle de la main se charge à part : sans lui, l'appli marche avec le seul filtre de forme
+async function initHands() {
+  const base = new URL(".", location.href).href;
+  try {
+    handLandmarker = await HandLandmarker.createFromOptions(
+      { wasmLoaderPath: base + "vision_wasm_internal.js", wasmBinaryPath: base + "vision_wasm_internal.wasm" },
+      { baseOptions: { modelAssetPath: base + "hand_landmarker.task", delegate: S.engine === "GPU" ? "GPU" : "CPU" }, runningMode: "IMAGE", numHands: 2 });
+    handLandmarker.detect(work); // la 1re détection est lente : on la fait ici plutôt que pendant le film
+    if (S.source === "image" && S.media) analyse(performance.now());
+  } catch (e) { S.handError = true; }
 }
 async function setMode(m) {
   if (landmarker && mode !== m) { await landmarker.setOptions({ runningMode: m }); mode = m; }
@@ -549,6 +561,7 @@ function workFrame(m, w, h) {
   return work;
 }
 
+const HAND = "main détectée";
 /* Filtre des fausses détections (squelette posé sur une main, sur un visage très proche…).
    Le prototype vise une personne debout, filmée en portrait : on refuse ce qui n'y ressemble pas.
    Renvoie la raison du refus, ou "" si le corps est plausible. */
@@ -570,6 +583,28 @@ function implausible(L) {
     if (t / sw < 0.7 || t / sw > 2.6) return "proportions du torse anormales";
   }
   return "";
+}
+
+/* Une main filmée de près passe pour un corps : on la cherche une image sur 5, ce qui laisse toujours
+   un contrôle avant l'affichage (6 images stables). Si le milieu des épaules tombe dans la main,
+   le « corps » n'en est pas un. Une main levée à côté d'une vraie personne ne déclenche rien. */
+function handOverBody(raw, src, w, h) {
+  if (!handLandmarker) return "";
+  if (++S.handWait >= 5) {
+    S.handWait = 0;
+    const t0 = performance.now();
+    try {
+      S.handBoxes = handLandmarker.detect(src).landmarks.map((pts) => {
+        const xs = pts.map((p) => (S.mirror ? 1 - p.x : p.x) * w), ys = pts.map((p) => p.y * h);
+        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+        const mx = (x1 - x0) * 0.15, my = (y1 - y0) * 0.15;
+        return { x0: x0 - mx, x1: x1 + mx, y0: y0 - my, y1: y1 + my };
+      });
+    } catch (e) { S.handBoxes = []; }
+    S.handMs = performance.now() - t0;
+  }
+  const sm = V.mid(raw[11], raw[12]);
+  return S.handBoxes.some((b) => sm.x >= b.x0 && sm.x <= b.x1 && sm.y >= b.y0 && sm.y <= b.y1) ? HAND : "";
 }
 
 function smooth(raw) {
@@ -605,7 +640,7 @@ function analyse(ts) {
       S.landmarks = smooth(raw);
       const key = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
       S.m.visSum += key.reduce((acc, i) => acc + (raw[i].v ?? 0), 0) / key.length;
-      const why = implausible(raw);
+      const why = implausible(raw) || handOverBody(raw, src, w, h);
       S.reject = why;
       S.stable = why ? 0 : (S.stable || 0) + 1;
       // en vidéo et en direct, on attend quelques images stables avant d'afficher le squelette
@@ -615,7 +650,7 @@ function analyse(ts) {
       if (found) { S.m.found++; if (S.m.first === null) S.m.first = performance.now() - S.m.start; }
     } else { S.landmarks = null; S.shapes = []; S.smooth = null; }
   }
-  setState(landmarker ? (found ? "ok" : "search") : "load");
+  setState(landmarker ? (found ? "ok" : S.landmarks && S.reject === HAND ? "hand" : "search") : "load");
   S.m.fpsN++;
   const now = performance.now();
   if (now - S.m.fpsT > 1000) { S.m.fps = (S.m.fpsN * 1000) / (now - S.m.fpsT); S.m.fpsN = 0; S.m.fpsT = now; }
@@ -632,7 +667,7 @@ function redrawStill() {
   if (!S.media || !S.landmarks) return;
   const [w, h] = mediaSize(S.media);
   ctx.drawImage(S.media, 0, 0, w, h);
-  drawAnatomy(S.landmarks);
+  if (!S.reject) drawAnatomy(S.landmarks);
   if (S.points) drawPoints(S.landmarks);
 }
 
@@ -764,7 +799,7 @@ canvas.addEventListener("click", (e) => {
 /* ---------- état et métriques ---------- */
 function setState(s) {
   const b = $("stateBtn"); b.dataset.s = s;
-  $("stateTxt").textContent = { load: "Chargement…", ok: "Corps calé", search: "Recherche du corps", err: "Erreur" }[s];
+  $("stateTxt").textContent = { load: "Chargement…", ok: "Corps calé", search: "Recherche du corps", hand: "Main détectée", err: "Erreur" }[s];
 }
 $("stateBtn").addEventListener("click", () => {
   const m = $("metrics"); m.hidden = !m.hidden; $("stateBtn").setAttribute("aria-expanded", !m.hidden); renderMetrics();
@@ -784,6 +819,7 @@ function metricsRows() {
     const nVis = L.filter((p) => (p.v ?? 0) > 0.5).length;
     const shW = Math.hypot(L[11].x - L[12].x, L[11].y - L[12].y) / canvas.width;
     rows.push(["Filtre", S.reject ? "refusé : " + S.reject : "accepté"]);
+    rows.push(["Main", !handLandmarker ? (S.handError ? "modèle en erreur" : "modèle non chargé") : S.handMs === null ? "pas encore cherchée" : `${S.handBoxes.length ? "vue" : "aucune"} (${Math.round(S.handMs)} ms)`]);
     rows.push(["Points visibles", `${nVis}/33`], ["Largeur épaules", Math.round(shW * 100) + " % de l'image"]);
   }
   return rows;
@@ -796,7 +832,7 @@ function renderMetrics() {
 }
 
 /* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
-const VERSION = "v0.7";
+const VERSION = "v0.8";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
   const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer];
@@ -843,6 +879,7 @@ window.addEventListener("resize", () => { if (S.media) { const [w, h] = mediaSiz
 useImage("exemple.jpg", true);
 try {
   await initLandmarker();
+  initHands();
   if (S.source === "image" && S.media) { await setMode("IMAGE"); analyse(performance.now()); }
 } catch (e) {
   setState("err");
