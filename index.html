@@ -114,7 +114,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.4</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.5</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -146,6 +146,7 @@ button { line-height: 1.2; }
       <label class="filebtn"><input id="fVideo" type="file" accept="video/*" capture="environment">Filmer une vidéo</label>
       <label class="filebtn"><input id="fPhoto" type="file" accept="image/*" capture="environment">Photo</label>
       <button id="bSample">Exemple</button>
+      <button id="bShare">Partager le test</button>
     </div>
     <div class="hint">Filme une personne de face, en entier ou le haut du corps, avec des vêtements près du corps. Touche une zone pour voir son nom.</div>
   </section>
@@ -739,8 +740,7 @@ function setState(s) {
 $("stateBtn").addEventListener("click", () => {
   const m = $("metrics"); m.hidden = !m.hidden; $("stateBtn").setAttribute("aria-expanded", !m.hidden); renderMetrics();
 });
-function renderMetrics() {
-  const el = $("metrics"); if (el.hidden) return;
+function metricsRows() {
   const m = S.m;
   const pct = m.frames ? Math.round((100 * m.found) / m.frames) : 0;
   const vis = m.frames ? Math.round((100 * m.visSum) / Math.max(1, m.frames)) : 0;
@@ -749,9 +749,59 @@ function renderMetrics() {
     : [["Images analysées", m.frames], ["Calage réussi", pct + " %"], ["1ʳᵉ détection", m.first === null ? "—" : (m.first / 1000).toFixed(1) + " s"], ["Visibilité points", vis + " %"], ["Images / s", m.fps.toFixed(0)]];
   const [rw, rh] = S.media ? rawSize(S.media) : [0, 0];
   rows.push(["Moteur", S.engine || "—"], ["Taille source", rw ? `${rw}×${rh}` : "—"], ["Hanches", S.hipsEstimated ? "estimées" : "vues"]);
+  return rows;
+}
+function renderMetrics() {
+  const el = $("metrics"); if (el.hidden) return;
+  const rows = metricsRows();
   el.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") +
     `<div class="note">Objectif du cadrage : calage réussi en moins de 10 s dans plus de 70 % des essais.</div>`;
 }
+
+/* ---------- partager le test : capture + mesures, via le menu de partage du téléphone ---------- */
+const VERSION = "v0.5";
+function testReport() {
+  const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
+  const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer];
+  const lines = [`Beauté intérieure, prototype ${VERSION}`, `Test du ${new Date().toLocaleString("fr-FR")}`,
+    `Source : ${src} · Calque : ${calque} · État : ${$("stateTxt").textContent}`,
+    ...metricsRows().map(([k, v]) => `${k} : ${v}`),
+    `Écran : ${screen.width}×${screen.height} px, ratio ${devicePixelRatio}`,
+    `Navigateur : ${navigator.userAgent}`];
+  return lines.join("\n");
+}
+function testImage(text) {
+  // capture de l'image affichée (dessin compris) avec les mesures en bas
+  const w = canvas.width || 720, h = canvas.height || 1280;
+  const lines = text.split("\n").slice(0, -1);
+  const fs = Math.max(14, Math.round(w / 40)), pad = fs, lh = Math.round(fs * 1.4);
+  const out = document.createElement("canvas");
+  out.width = w; out.height = h + pad * 2 + lh * lines.length;
+  const o = out.getContext("2d");
+  o.fillStyle = "#0b1014"; o.fillRect(0, 0, out.width, out.height);
+  if (canvas.width) o.drawImage(canvas, 0, 0);
+  o.fillStyle = "#e8eef0"; o.font = `${fs}px "IBM Plex Mono", monospace`; o.textBaseline = "top";
+  lines.forEach((l, i) => o.fillText(l, pad, h + pad + i * lh, w - pad * 2));
+  return new Promise((res) => out.toBlob(res, "image/png"));
+}
+$("bShare").addEventListener("click", async () => {
+  const text = testReport();
+  const was = S.paused; S.paused = true;          // fige l'image le temps de la capture
+  const blob = await testImage(text);
+  S.paused = was;
+  const file = new File([blob], `test-beaute-interieure-${Date.now()}.png`, { type: "image/png" });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], text, title: "Test Beauté intérieure" });
+      return;
+    }
+  } catch (e) { if (e && e.name === "AbortError") return; }
+  // repli : texte copié + image téléchargée
+  try { await navigator.clipboard.writeText(text); } catch (_) {}
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  showMsg("Partage indisponible sur ce navigateur : l'image a été téléchargée et les mesures copiées. Colle-les dans la discussion Claude.");
+});
 
 /* ---------- messages ---------- */
 function showMsg(t, err) { const m = $("msg"); m.textContent = t; m.classList.toggle("err", !!err); m.hidden = false; }
