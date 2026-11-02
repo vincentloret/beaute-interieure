@@ -115,7 +115,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.8</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.8.1</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -586,10 +586,12 @@ function implausible(L) {
 }
 
 /* Une main filmée de près passe pour un corps : on la cherche une image sur 5, ce qui laisse toujours
-   un contrôle avant l'affichage (6 images stables). Si le milieu des épaules tombe dans la main,
+   un contrôle avant l'affichage (6 images stables), puis plus du tout une fois le corps calé. Si le milieu des épaules tombe dans la main,
    le « corps » n'en est pas un. Une main levée à côté d'une vraie personne ne déclenche rien. */
 function handOverBody(raw, src, w, h) {
   if (!handLandmarker) return "";
+  // corps déjà calé : plus besoin de chercher la main (elle coûtait ~100 ms une image sur 5)
+  if (S.stable >= 6) return "";
   if (++S.handWait >= 5) {
     S.handWait = 0;
     const t0 = performance.now();
@@ -832,7 +834,7 @@ function renderMetrics() {
 }
 
 /* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
-const VERSION = "v0.8";
+const VERSION = "v0.8.1";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
   const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer];
