@@ -114,7 +114,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.6</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.7</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -178,6 +178,7 @@ const S = {
 let landmarker = null, mode = null, rafId = 0, lastVideoTime = -1;
 
 function resetMetrics() {
+  S.stable = 0; S.reject = "";
   S.m = { start: performance.now(), frames: 0, found: 0, first: null, visSum: 0, fpsT: performance.now(), fpsN: 0, fps: 0 };
 }
 resetMetrics();
@@ -548,6 +549,29 @@ function workFrame(m, w, h) {
   return work;
 }
 
+/* Filtre des fausses détections (squelette posé sur une main, sur un visage très proche…).
+   Le prototype vise une personne debout, filmée en portrait : on refuse ce qui n'y ressemble pas.
+   Renvoie la raison du refus, ou "" si le corps est plausible. */
+function implausible(L) {
+  const v = (i) => (L[i].v ?? 0) > 0.5;
+  if (!v(11) || !v(12)) return "épaules non visibles";
+  const sw = Math.hypot(L[11].x - L[12].x, L[11].y - L[12].y);
+  if (sw < 0.08 * canvas.width) return "personne trop loin";
+  const tilt = Math.abs(Math.atan2(L[11].y - L[12].y, Math.abs(L[11].x - L[12].x))) * 180 / Math.PI;
+  if (tilt > 35) return "épaules trop inclinées";
+  const sm = { x: (L[11].x + L[12].x) / 2, y: (L[11].y + L[12].y) / 2 };
+  if (!v(0)) return "tête non visible";
+  if (L[0].y > sm.y - 0.15 * sw) return "tête pas au-dessus des épaules";
+  if (v(23) && v(24)) {
+    const hm = { x: (L[23].x + L[24].x) / 2, y: (L[23].y + L[24].y) / 2 };
+    const t = Math.hypot(hm.x - sm.x, hm.y - sm.y);
+    const lean = Math.abs(Math.atan2(hm.x - sm.x, hm.y - sm.y)) * 180 / Math.PI;
+    if (hm.y <= sm.y || lean > 35) return "corps couché ou à l'envers";
+    if (t / sw < 0.7 || t / sw > 2.6) return "proportions du torse anormales";
+  }
+  return "";
+}
+
 function smooth(raw) {
   if (!S.smooth || S.source === "image") { S.smooth = raw.map((p) => ({ ...p })); return S.smooth; }
   // lissage adaptatif : fort quand le corps est immobile (moins de tremblement), nul quand il bouge vite (pas de retard)
@@ -581,7 +605,12 @@ function analyse(ts) {
       S.landmarks = smooth(raw);
       const key = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
       S.m.visSum += key.reduce((acc, i) => acc + (raw[i].v ?? 0), 0) / key.length;
-      found = drawAnatomy(S.landmarks);
+      const why = implausible(raw);
+      S.reject = why;
+      S.stable = why ? 0 : (S.stable || 0) + 1;
+      // en vidéo et en direct, on attend quelques images stables avant d'afficher le squelette
+      const ready = !why && (S.source === "image" || S.stable >= 6);
+      found = ready ? drawAnatomy(S.landmarks) : (S.shapes = [], false);
       if (S.points) drawPoints(S.landmarks);
       if (found) { S.m.found++; if (S.m.first === null) S.m.first = performance.now() - S.m.start; }
     } else { S.landmarks = null; S.shapes = []; S.smooth = null; }
@@ -754,6 +783,7 @@ function metricsRows() {
   if (L && canvas.width) {
     const nVis = L.filter((p) => (p.v ?? 0) > 0.5).length;
     const shW = Math.hypot(L[11].x - L[12].x, L[11].y - L[12].y) / canvas.width;
+    rows.push(["Filtre", S.reject ? "refusé : " + S.reject : "accepté"]);
     rows.push(["Points visibles", `${nVis}/33`], ["Largeur épaules", Math.round(shW * 100) + " % de l'image"]);
   }
   return rows;
@@ -766,7 +796,7 @@ function renderMetrics() {
 }
 
 /* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
-const VERSION = "v0.6";
+const VERSION = "v0.7";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
   const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer];
