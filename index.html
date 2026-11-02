@@ -53,7 +53,7 @@ body {
 .state[data-s="err"] .dot { background: var(--muscle); }
 
 .stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
-#view { display: block; touch-action: manipulation; }
+#view { display: block; touch-action: manipulation; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .msg {
   position: absolute; inset: auto 16px 16px 16px; margin: auto; max-width: 420px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
@@ -114,7 +114,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.3</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.4</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -304,6 +304,9 @@ function drawAnatomy(L) {
     S.hipsEstimated = true;
   } else S.hipsEstimated = false;
   const vis = (i) => (L[i].v ?? 1) > 0.35;
+  // membres : seuil plus strict et point dans l'image, sinon un bras hors cadre est dessiné au hasard
+  const inFrame = (i) => L[i].x > -0.02 * canvas.width && L[i].x < 1.02 * canvas.width && L[i].y > -0.02 * canvas.height && L[i].y < 1.02 * canvas.height;
+  const visL = (i) => (L[i].v ?? 1) > 0.6 && inFrame(i);
   const P = (i) => L[i];
   const need = [11, 12, 23, 24];
   const torsoOK = need.every(vis);
@@ -341,19 +344,19 @@ function drawAnatomy(L) {
                       V.add(P(q.sh), V.add(V.mul(d, 0.2), V.mul(r, -0.1 * g * s))), at(0.36, 0.28 * g), at(0.36, 0.03 * g)]), "pectoral", side);
       // obliques
       mFill(polyPath([at(0.42, 0.24 * g), at(0.44, 0.44 * g), at(0.86, 0.4 * g), at(0.92, 0.18 * g), at(0.48, 0.15 * g)]), "obliques", side);
-      if (vis(q.el)) {
+      if (visL(q.el)) {
         const ua = V.sub(P(q.el), P(q.sh)), ual = V.len(ua);
         mFill(ellipsePath(V.lerp(P(q.sh), P(q.el), 0.12), ua, ual * 0.3, s * 0.15), "deltoide", side);
         mFill(ellipsePath(V.lerp(P(q.sh), P(q.el), 0.58), ua, ual * 0.34, s * 0.085), "biceps", side);
-        if (vis(q.wr)) {
+        if (visL(q.wr)) {
           const fa = V.sub(P(q.wr), P(q.el)), fal = V.len(fa);
           mFill(ellipsePath(V.lerp(P(q.el), P(q.wr), 0.35), fa, fal * 0.42, s * 0.075), "muscAvantbras", side);
         }
       }
-      if (vis(q.kn)) {
+      if (visL(q.kn)) {
         const th = V.sub(P(q.kn), P(q.hi)), thl = V.len(th);
         mFill(ellipsePath(V.lerp(P(q.hi), P(q.kn), 0.5), th, thl * 0.5, s * 0.17), "quadriceps", side);
-        if (vis(q.an)) {
+        if (visL(q.an)) {
           const sn = V.sub(P(q.an), P(q.kn)), snl = V.len(sn);
           mFill(ellipsePath(V.lerp(P(q.kn), P(q.an), 0.36), sn, snl * 0.38, s * 0.1), "muscJambe", side);
         }
@@ -389,7 +392,7 @@ function drawAnatomy(L) {
     if (vis(0)) {
       const ears = vis(7) && vis(8) ? V.mid(P(7), P(8)) : P(0);
       const c = V.lerp(ears, P(0), 0.35);
-      const rad = Math.max(vis(7) && vis(8) ? V.len(V.sub(P(7), P(8))) * 0.62 : 0, s * 0.24);
+      const rad = Math.max(vis(7) && vis(8) ? V.len(V.sub(P(7), P(8))) * 0.85 : 0, s * 0.3);
       const up = V.mul(V.norm(d), -1);
       const skull = new Path2D();
       skull.ellipse(c.x + up.x * rad * 0.15, c.y + up.y * rad * 0.15, rad * 0.86, rad, Math.atan2(r.y, r.x), 0, Math.PI * 2);
@@ -417,7 +420,7 @@ function drawAnatomy(L) {
     // côtes
     for (let k = 0; k < 10; k++) {
       const t = 0.08 + k * 0.052;
-      const w = s * 0.5 * (0.72 + 0.32 * Math.sin(Math.PI * (k + 1.5) / 12));
+      const w = s * 0.5 * (0.6 + 0.2 * Math.sin(Math.PI * (k + 1.5) / 12)); // cage thoracique plus étroite que les épaules
       for (const g of [1, -1]) {
         const a = at(t, 0.03 * g), b = V.add(at(t + 0.07), V.mul(r, g * w));
         const ctrl = V.add(at(t - 0.04), V.mul(r, g * w * 0.95));
@@ -447,9 +450,9 @@ function drawAnatomy(L) {
 
     // membres
     for (const q of sides) {
-      if (vis(q.el)) {
+      if (visL(q.el)) {
         bFill(bonePath(P(q.sh), P(q.el), s * 0.065), "humerus", q.name);
-        if (vis(q.wr)) {
+        if (visL(q.wr)) {
           const n2 = V.mul(V.perp(V.norm(V.sub(P(q.wr), P(q.el)))), s * 0.028);
           bFill(bonePath(V.add(P(q.el), n2), V.add(P(q.wr), n2), s * 0.032), "avantbras", q.name);
           bFill(bonePath(V.sub(P(q.el), n2), V.sub(P(q.wr), n2), s * 0.032), "avantbras", q.name);
@@ -458,9 +461,9 @@ function drawAnatomy(L) {
           bStroke(hand, Math.max(2, s * 0.025), "main", q.name);
         }
       }
-      if (vis(q.kn)) {
+      if (visL(q.kn)) {
         bFill(bonePath(P(q.hi), P(q.kn), s * 0.085), "femur", q.name);
-        if (vis(q.an)) {
+        if (visL(q.an)) {
           const n2 = V.mul(V.perp(V.norm(V.sub(P(q.an), P(q.kn)))), s * 0.03 * q.sg);
           bFill(bonePath(V.sub(P(q.kn), n2), V.sub(P(q.an), n2), s * 0.06), "jambe", q.name);
           bFill(bonePath(V.add(P(q.kn), V.mul(n2, 1.6)), V.add(P(q.an), V.mul(n2, 1.4)), s * 0.028), "jambe", q.name);
@@ -523,7 +526,8 @@ function drawPoints(L) {
 function fitCanvas(w, h) {
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   const sw = stage.clientWidth, shh = stage.clientHeight;
-  const k = Math.min(sw / w, shh / h);
+  // vidéo et direct : l'image remplit l'écran (bords rognés), photo : image entière
+  const k = S.source === "image" ? Math.min(sw / w, shh / h) : Math.max(sw / w, shh / h);
   canvas.style.width = `${Math.floor(w * k)}px`; canvas.style.height = `${Math.floor(h * k)}px`;
 }
 function rawSize(m) { return m instanceof HTMLVideoElement ? [m.videoWidth, m.videoHeight] : [m.naturalWidth, m.naturalHeight]; }
