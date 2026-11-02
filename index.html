@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>[hidden]{display:none!important} body{margin:0} :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);box-sizing:border-box}</style>
+<title>Beauté intérieure, prototype</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout : écran caméra plein cadre, calque anatomique dessiné sur canvas, commandes en bas. Thème sombre unique (appareil photo). */
+:root {
+  --bg: #0b1014;
+  --panel: rgba(13, 21, 27, 0.9);
+  --panel-solid: #121c23;
+  --line: rgba(160, 190, 200, 0.18);
+  --fg: #e8eef0;
+  --muted: #93a6ae;
+  --bone: #f1e7d0;
+  --muscle: #d4473f;
+  --accent: #58c4b8;
+  --warn: #e8b04a;
+  --font-ui: "Outfit", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  overflow: hidden;
+}
+.app { height: 100%; display: flex; flex-direction: column; }
+.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding-block: 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.brand { display: flex; flex-direction: column; min-width: 0; }
+.brand b { font-weight: 600; font-size: 17px; letter-spacing: 0.01em; }
+.brand span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.state {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-data); font-size: 12px;
+  border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px;
+  background: none; color: var(--fg); cursor: pointer; white-space: nowrap;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.state[data-s="ok"] .dot { background: var(--accent); }
+.state[data-s="search"] .dot { background: var(--warn); }
+.state[data-s="err"] .dot { background: var(--muscle); }
+
+.stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
+#view { display: block; touch-action: manipulation; }
+.msg {
+  position: absolute; inset: auto 16px 16px 16px; margin: auto; max-width: 420px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; font-size: 14px; line-height: 1.45;
+}
+.msg.err { border-color: var(--muscle); }
+.card {
+  position: absolute; left: 16px; right: 16px; bottom: 12px; margin: 0 auto; max-width: 420px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; display: grid; gap: 4px;
+}
+.card .kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.card .kind i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.card h2 { margin: 0; font-size: 19px; font-weight: 600; text-wrap: balance; }
+.card p { margin: 0; color: var(--fg); opacity: 0.88; line-height: 1.45; }
+
+.metrics {
+  position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); top: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; font-family: var(--font-data); font-size: 12px;
+  display: grid; grid-template-columns: auto auto; gap: 4px 14px;
+  font-variant-numeric: tabular-nums; max-width: calc(100% - 32px);
+}
+.metrics dt { color: var(--muted); }
+.metrics dd { margin: 0; text-align: right; }
+.metrics .note { grid-column: 1 / -1; color: var(--muted); font-family: var(--font-ui); max-width: 230px; line-height: 1.35; margin-top: 4px; }
+
+.controls {
+  display: grid; gap: 8px;
+  padding-block: 10px 12px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-top: 1px solid var(--line);
+  background: var(--panel-solid);
+}
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { border: 0; border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: 0; }
+button, .filebtn {
+  font: inherit; font-size: 13px; color: var(--fg);
+  background: transparent; border: 1px solid var(--line); border-radius: 10px;
+  padding: 6px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  min-height: 36px;
+}
+.seg button { border-radius: 0; }
+button[aria-pressed="true"] { background: var(--accent); color: #06221f; font-weight: 600; }
+button:focus-visible, .filebtn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filebtn { position: relative; line-height: 1.2; }
+button { line-height: 1.2; }
+.filebtn input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; }
+.hint { color: var(--muted); font-size: 12px; line-height: 1.4; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.3</span></div>
+    <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
+  </header>
+
+  <main class="stage" id="stage">
+    <canvas id="view" aria-label="Image filmée avec l'anatomie en surimpression"></canvas>
+    <div class="card" id="card" hidden>
+      <div class="kind"><i id="cardSw"></i><span id="cardKind"></span></div>
+      <h2 id="cardTitle"></h2>
+      <p id="cardText"></p>
+    </div>
+    <dl class="metrics" id="metrics" hidden></dl>
+    <div class="msg" id="msg" hidden></div>
+  </main>
+
+  <section class="controls">
+    <div class="row">
+      <div class="seg" role="group" aria-label="Calques">
+        <button id="lBones" aria-pressed="false">Os</button>
+        <button id="lMuscles" aria-pressed="false">Muscles</button>
+        <button id="lBoth" aria-pressed="true">Les deux</button>
+      </div>
+      <button id="tNames" aria-pressed="false">Noms</button>
+      <button id="tPoints" aria-pressed="false">Points</button>
+      <button id="tPause" hidden>Pause</button>
+    </div>
+    <div class="row">
+      <button id="bLive" class="primary">Caméra en direct</button>
+      <button id="bFlip" hidden>Changer de caméra</button>
+      <label class="filebtn"><input id="fVideo" type="file" accept="video/*" capture="environment">Filmer une vidéo</label>
+      <label class="filebtn"><input id="fPhoto" type="file" accept="image/*" capture="environment">Photo</label>
+      <button id="bSample">Exemple</button>
+    </div>
+    <div class="hint">Filme une personne de face, en entier ou le haut du corps, avec des vêtements près du corps. Touche une zone pour voir son nom.</div>
+  </section>
+</div>
+
+<script type="module">
+import { FilesetResolver, PoseLandmarker } from "./vision_bundle.mjs";
+
+const $ = (id) => document.getElementById(id);
+const canvas = $("view"), ctx = canvas.getContext("2d");
+const stage = $("stage");
+const css = getComputedStyle(document.documentElement);
+const C = {
+  bone: css.getPropertyValue("--bone").trim(),
+  muscle: css.getPropertyValue("--muscle").trim(),
+  accent: css.getPropertyValue("--accent").trim(),
+};
+
+/* ---------- état ---------- */
+const S = {
+  layer: "both", names: false, points: false,
+  source: null,            // "image" | "video" | "live"
+  media: null,             // HTMLImageElement | HTMLVideoElement
+  landmarks: null, smooth: null,
+  shapes: [], selected: null,
+  paused: false, stream: null,
+  m: null,                 // métriques
+};
+let landmarker = null, mode = null, rafId = 0, lastVideoTime = -1;
+
+function resetMetrics() {
+  S.m = { start: performance.now(), frames: 0, found: 0, first: null, visSum: 0, fpsT: performance.now(), fpsN: 0, fps: 0 };
+}
+resetMetrics();
+
+/* ---------- moteur de détection ---------- */
+async function initLandmarker() {
+  const base = new URL(".", location.href).href;
+  const fileset = {
+    wasmLoaderPath: base + "vision_wasm_internal.js",
+    wasmBinaryPath: base + "vision_wasm_internal.wasm",
+  };
+  const opts = (delegate) => ({
+    baseOptions: { modelAssetPath: base + "pose_landmarker_lite.task", delegate },
+    runningMode: "IMAGE", numPoses: 1,
+    minPoseDetectionConfidence: 0.3, minPosePresenceConfidence: 0.3, minTrackingConfidence: 0.3,
+  });
+  // Sur certains téléphones, le calcul sur carte graphique (GPU) démarre mais ne trouve aucun corps.
+  // On le vérifie sur la photo d'exemple ; en cas d'échec on passe au processeur (CPU).
+  const probe = new Image(); probe.src = base + "exemple.jpg"; await probe.decode();
+  const [pw, ph] = [probe.naturalWidth, probe.naturalHeight];
+  try {
+    landmarker = await PoseLandmarker.createFromOptions(fileset, opts("GPU"));
+    const ok = landmarker.detect(workFrame(probe, pw, ph)).landmarks.length > 0;
+    if (!ok) throw new Error("gpu-sans-resultat");
+    S.engine = "GPU";
+  } catch (e) {
+    try { landmarker && landmarker.close(); } catch (_) {}
+    landmarker = await PoseLandmarker.createFromOptions(fileset, opts("CPU"));
+    S.engine = landmarker.detect(workFrame(probe, pw, ph)).landmarks.length > 0 ? "CPU" : "CPU (test échoué)";
+  }
+  mode = "IMAGE";
+}
+async function setMode(m) {
+  if (landmarker && mode !== m) { await landmarker.setOptions({ runningMode: m }); mode = m; }
+}
+
+/* ---------- géométrie ---------- */
+const V = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }),
+  sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y }),
+  mul: (a, k) => ({ x: a.x * k, y: a.y * k }),
+  len: (a) => Math.hypot(a.x, a.y),
+  mid: (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }),
+  lerp: (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }),
+  norm: (a) => { const l = Math.hypot(a.x, a.y) || 1; return { x: a.x / l, y: a.y / l }; },
+  perp: (a) => ({ x: -a.y, y: a.x }),
+};
+
+/* Fiches pédagogiques. side : "gauche"/"droit" du point de vue de la personne filmée. */
+const INFO = {
+  crane: ["Crâne", "Il protège le cerveau. Il est formé de 22 os, presque tous soudés entre eux."],
+  clavicule: ["Clavicule", "Elle relie l'épaule au sternum. C'est l'un des os qui se cassent le plus souvent lors d'une chute."],
+  cotes: ["Côtes", "12 paires de côtes forment la cage thoracique, qui protège le cœur et les poumons."],
+  sternum: ["Sternum", "Os plat au milieu de la poitrine, où s'attachent les côtes."],
+  colonne: ["Colonne vertébrale", "Une pile de 33 vertèbres environ. Elle tient le corps droit et protège la moelle épinière."],
+  bassin: ["Bassin", "Il porte le poids du haut du corps et le transmet aux jambes."],
+  humerus: ["Humérus", "L'os du bras, de l'épaule jusqu'au coude."],
+  avantbras: ["Radius et ulna", "Les deux os de l'avant-bras. Ils se croisent quand tu tournes la paume vers le bas."],
+  main: ["Os de la main", "27 os environ dans chaque main, ce qui permet des gestes très précis."],
+  femur: ["Fémur", "L'os de la cuisse. C'est le plus long et le plus solide du corps."],
+  jambe: ["Tibia et fibula", "Les deux os de la jambe. Le tibia porte presque tout le poids du corps."],
+  pied: ["Os du pied", "26 os par pied, qui amortissent chaque pas."],
+  trapeze: ["Trapèze", "Il hausse les épaules et aide à tenir la tête."],
+  pectoral: ["Grand pectoral", "Il rapproche le bras du corps. C'est lui qui travaille pendant les pompes."],
+  deltoide: ["Deltoïde", "Il recouvre l'épaule et lève le bras sur le côté."],
+  biceps: ["Biceps brachial", "Il plie le coude et tourne la paume vers le haut."],
+  muscAvantbras: ["Muscles de l'avant-bras", "Une vingtaine de muscles qui bougent le poignet et les doigts."],
+  abdos: ["Grand droit de l'abdomen", "Les « abdos ». Il plie le tronc vers l'avant et protège le ventre."],
+  obliques: ["Obliques", "Ils font tourner et pencher le tronc sur le côté."],
+  quadriceps: ["Quadriceps", "4 muscles réunis qui tendent la jambe au niveau du genou."],
+  muscJambe: ["Muscles de la jambe", "Ils relèvent et poussent le pied : indispensables pour marcher et sauter."],
+};
+function label(key, side) {
+  const [t, d] = INFO[key];
+  return { title: side ? `${t} ${side}` : t, text: d };
+}
+
+/* Enregistre une forme dessinée pour le toucher. */
+function shape(path, layer, key, side, how = "fill", lw = 0) {
+  S.shapes.push({ path, layer, key, side, how, lw });
+}
+
+function ellipsePath(c, along, rx, ry) {
+  const p = new Path2D();
+  p.ellipse(c.x, c.y, Math.max(rx, 1), Math.max(ry, 1), Math.atan2(along.y, along.x), 0, Math.PI * 2);
+  return p;
+}
+function polyPath(pts) {
+  const p = new Path2D();
+  pts.forEach((q, i) => (i ? p.lineTo(q.x, q.y) : p.moveTo(q.x, q.y)));
+  p.closePath();
+  return p;
+}
+function bonePath(a, b, w) {
+  // os long : fût + deux épiphyses
+  const dir = V.norm(V.sub(b, a)), n = V.perp(dir);
+  const p = new Path2D();
+  const s1 = V.add(a, V.mul(n, w * 0.5)), s2 = V.add(b, V.mul(n, w * 0.5));
+  const s3 = V.sub(b, V.mul(n, w * 0.5)), s4 = V.sub(a, V.mul(n, w * 0.5));
+  p.moveTo(s1.x, s1.y); p.lineTo(s2.x, s2.y); p.lineTo(s3.x, s3.y); p.lineTo(s4.x, s4.y); p.closePath();
+  for (const e of [a, b]) {
+    for (const k of [-0.45, 0.45]) {
+      const c = V.add(e, V.mul(n, w * k));
+      p.moveTo(c.x + w * 0.62, c.y); p.arc(c.x, c.y, w * 0.62, 0, Math.PI * 2);
+    }
+  }
+  return p;
+}
+
+/* ---------- dessin de l'anatomie ---------- */
+function drawAnatomy(L) {
+  S.shapes = [];
+  if ((L[11].v ?? 1) > 0.35 && (L[12].v ?? 1) > 0.35 && !((L[23].v ?? 1) > 0.35 && (L[24].v ?? 1) > 0.35)) {
+    // hanches hors du cadre (haut du corps seulement) : on les estime à partir des épaules
+    const a = L[11], b = L[12], sw = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    let dn = { x: -(a.y - b.y) / sw, y: (a.x - b.x) / sw };
+    const ref = (L[0].v ?? 1) > 0.35 ? { x: mid.x - L[0].x, y: mid.y - L[0].y } : { x: 0, y: 1 };
+    if (dn.x * ref.x + dn.y * ref.y < 0) dn = { x: -dn.x, y: -dn.y };
+    const hm = { x: mid.x + dn.x * sw * 1.3, y: mid.y + dn.y * sw * 1.3 };
+    const r = { x: (a.x - b.x) / sw, y: (a.y - b.y) / sw };
+    L = L.map((p) => ({ ...p }));
+    L[23] = { x: hm.x + r.x * sw * 0.36, y: hm.y + r.y * sw * 0.36, v: 1 };
+    L[24] = { x: hm.x - r.x * sw * 0.36, y: hm.y - r.y * sw * 0.36, v: 1 };
+    S.hipsEstimated = true;
+  } else S.hipsEstimated = false;
+  const vis = (i) => (L[i].v ?? 1) > 0.35;
+  const P = (i) => L[i];
+  const need = [11, 12, 23, 24];
+  const torsoOK = need.every(vis);
+  const sh = torsoOK ? V.len(V.sub(P(11), P(12))) : 0;
+  if (!torsoOK || sh < 8) return false;
+
+  const Sm = V.mid(P(11), P(12)), Hm = V.mid(P(23), P(24));
+  const d = V.sub(Hm, Sm), T = V.len(d);
+  const r = V.norm(V.sub(P(11), P(12)));   // vers la gauche de la personne
+  const at = (t, k = 0) => V.add(V.add(Sm, V.mul(d, t)), V.mul(r, k * sh));
+  const s = sh;
+  const showB = S.layer !== "muscles", showM = S.layer !== "bones";
+  const sides = [{ sg: 1, sh: 11, el: 13, wr: 15, hi: 23, kn: 25, an: 27, ix: 19, pk: 17, ft: 31, heel: 29, name: "gauche" },
+                 { sg: -1, sh: 12, el: 14, wr: 16, hi: 24, kn: 26, an: 28, ix: 20, pk: 18, ft: 32, heel: 30, name: "droit" }];
+
+  // voile sombre : effet « vision intérieure »
+  ctx.save(); ctx.fillStyle = "rgba(8, 14, 20, 0.28)"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore();
+
+  /* ----- muscles ----- */
+  if (showM) {
+    const alpha = showB ? 0.55 : 0.78;
+    const mFill = (path, key, side) => {
+      ctx.save();
+      ctx.globalAlpha = alpha; ctx.fillStyle = C.muscle; ctx.fill(path);
+      ctx.globalAlpha = Math.min(1, alpha + 0.2); ctx.strokeStyle = "#7d1f1b"; ctx.lineWidth = Math.max(1, s * 0.008); ctx.stroke(path);
+      ctx.restore();
+      shape(path, "muscles", key, side);
+    };
+    // trapèze
+    mFill(polyPath([at(-0.12, 0.08), at(-0.12, -0.08), at(0.02, -0.48), at(0.03, 0), at(0.02, 0.48)]), "trapeze");
+    for (const q of sides) {
+      const g = q.sg, side = q.name === "gauche" ? "gauche" : "droit";
+      // grand pectoral
+      mFill(polyPath([at(0.04, 0.03 * g), V.add(P(q.sh), V.add(V.mul(d, 0.04), V.mul(r, -0.06 * g * s))),
+                      V.add(P(q.sh), V.add(V.mul(d, 0.2), V.mul(r, -0.1 * g * s))), at(0.36, 0.28 * g), at(0.36, 0.03 * g)]), "pectoral", side);
+      // obliques
+      mFill(polyPath([at(0.42, 0.24 * g), at(0.44, 0.44 * g), at(0.86, 0.4 * g), at(0.92, 0.18 * g), at(0.48, 0.15 * g)]), "obliques", side);
+      if (vis(q.el)) {
+        const ua = V.sub(P(q.el), P(q.sh)), ual = V.len(ua);
+        mFill(ellipsePath(V.lerp(P(q.sh), P(q.el), 0.12), ua, ual * 0.3, s * 0.15), "deltoide", side);
+        mFill(ellipsePath(V.lerp(P(q.sh), P(q.el), 0.58), ua, ual * 0.34, s * 0.085), "biceps", side);
+        if (vis(q.wr)) {
+          const fa = V.sub(P(q.wr), P(q.el)), fal = V.len(fa);
+          mFill(ellipsePath(V.lerp(P(q.el), P(q.wr), 0.35), fa, fal * 0.42, s * 0.075), "muscAvantbras", side);
+        }
+      }
+      if (vis(q.kn)) {
+        const th = V.sub(P(q.kn), P(q.hi)), thl = V.len(th);
+        mFill(ellipsePath(V.lerp(P(q.hi), P(q.kn), 0.5), th, thl * 0.5, s * 0.17), "quadriceps", side);
+        if (vis(q.an)) {
+          const sn = V.sub(P(q.an), P(q.kn)), snl = V.len(sn);
+          mFill(ellipsePath(V.lerp(P(q.kn), P(q.an), 0.36), sn, snl * 0.38, s * 0.1), "muscJambe", side);
+        }
+      }
+    }
+    // grand droit de l'abdomen : 2 colonnes × 4 segments
+    for (const g of [1, -1]) {
+      for (let k = 0; k < 4; k++) {
+        const t0 = 0.4 + k * 0.135, t1 = t0 + 0.12;
+        mFill(polyPath([at(t0, 0.02 * g), at(t0, 0.14 * g), at(t1, 0.135 * g), at(t1, 0.02 * g)]), "abdos");
+      }
+    }
+  }
+
+  /* ----- os ----- */
+  if (showB) {
+    const bFill = (path, key, side) => {
+      ctx.save();
+      ctx.fillStyle = C.bone; ctx.globalAlpha = 0.92; ctx.fill(path);
+      ctx.globalAlpha = 1; ctx.strokeStyle = "#6f6248"; ctx.lineWidth = Math.max(1, s * 0.007); ctx.stroke(path);
+      ctx.restore();
+      shape(path, "bones", key, side);
+    };
+    const bStroke = (path, w, key, side) => {
+      ctx.save();
+      ctx.lineCap = "round"; ctx.strokeStyle = "#6f6248"; ctx.lineWidth = w + Math.max(2, s * 0.012); ctx.stroke(path);
+      ctx.strokeStyle = C.bone; ctx.lineWidth = w; ctx.stroke(path);
+      ctx.restore();
+      shape(path, "bones", key, side, "stroke", Math.max(w, s * 0.06));
+    };
+
+    // crâne
+    if (vis(0)) {
+      const ears = vis(7) && vis(8) ? V.mid(P(7), P(8)) : P(0);
+      const c = V.lerp(ears, P(0), 0.35);
+      const rad = Math.max(vis(7) && vis(8) ? V.len(V.sub(P(7), P(8))) * 0.62 : 0, s * 0.24);
+      const up = V.mul(V.norm(d), -1);
+      const skull = new Path2D();
+      skull.ellipse(c.x + up.x * rad * 0.15, c.y + up.y * rad * 0.15, rad * 0.86, rad, Math.atan2(r.y, r.x), 0, Math.PI * 2);
+      bFill(skull, "crane");
+      ctx.save(); ctx.fillStyle = "#3a3226"; ctx.globalAlpha = 0.85;
+      for (const g of [1, -1]) {
+        const o = V.add(V.add(c, V.mul(r, g * rad * 0.33)), V.mul(up, rad * 0.05));
+        ctx.beginPath(); ctx.ellipse(o.x, o.y, rad * 0.2, rad * 0.16, Math.atan2(r.y, r.x), 0, Math.PI * 2); ctx.fill();
+      }
+      const ns = V.sub(c, V.mul(up, rad * 0.25));
+      ctx.beginPath(); ctx.ellipse(ns.x, ns.y, rad * 0.07, rad * 0.12, Math.atan2(r.y, r.x), 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
+    // colonne
+    const spine = new Path2D();
+    const n = 17;
+    for (let k = 0; k < n; k++) {
+      const t = -0.14 + (k / (n - 1)) * 1.06;
+      const c = at(t), w = s * (0.06 + 0.03 * (k / n));
+      spine.moveTo(c.x + w, c.y); spine.ellipse(c.x, c.y, w, T * 0.024, Math.atan2(r.y, r.x), 0, Math.PI * 2);
+    }
+    bFill(spine, "colonne");
+
+    // côtes
+    for (let k = 0; k < 10; k++) {
+      const t = 0.08 + k * 0.052;
+      const w = s * 0.5 * (0.72 + 0.32 * Math.sin(Math.PI * (k + 1.5) / 12));
+      for (const g of [1, -1]) {
+        const a = at(t, 0.03 * g), b = V.add(at(t + 0.07), V.mul(r, g * w));
+        const ctrl = V.add(at(t - 0.04), V.mul(r, g * w * 0.95));
+        const p = new Path2D(); p.moveTo(a.x, a.y); p.quadraticCurveTo(ctrl.x, ctrl.y, b.x, b.y);
+        bStroke(p, Math.max(2, s * 0.028), "cotes");
+      }
+    }
+    // sternum
+    bFill(polyPath([at(0.05, -0.03), at(0.05, 0.03), at(0.4, 0.022), at(0.44, 0), at(0.4, -0.022)]), "sternum");
+    // clavicules
+    for (const q of sides) {
+      const p = new Path2D(); const a = at(0.03, 0.03 * q.sg), b = V.add(P(q.sh), V.mul(d, -0.02));
+      const ctrl = V.add(V.lerp(a, b, 0.5), V.mul(d, -0.05));
+      p.moveTo(a.x, a.y); p.quadraticCurveTo(ctrl.x, ctrl.y, b.x, b.y);
+      bStroke(p, Math.max(2, s * 0.04), "clavicule", q.name);
+    }
+    // bassin
+    const pel = new Path2D();
+    for (const q of sides) {
+      const c = V.add(V.lerp(Hm, P(q.hi), 0.55), V.mul(d, -0.06));
+      pel.moveTo(c.x + s * 0.2, c.y);
+      pel.ellipse(c.x, c.y, s * 0.2, T * 0.13, Math.atan2(r.y, r.x) + q.sg * 0.35, 0, Math.PI * 2);
+    }
+    const sac = V.add(Hm, V.mul(d, 0.02));
+    pel.moveTo(sac.x + s * 0.09, sac.y); pel.ellipse(sac.x, sac.y, s * 0.09, T * 0.1, Math.atan2(r.y, r.x), 0, Math.PI * 2);
+    bFill(pel, "bassin");
+
+    // membres
+    for (const q of sides) {
+      if (vis(q.el)) {
+        bFill(bonePath(P(q.sh), P(q.el), s * 0.065), "humerus", q.name);
+        if (vis(q.wr)) {
+          const n2 = V.mul(V.perp(V.norm(V.sub(P(q.wr), P(q.el)))), s * 0.028);
+          bFill(bonePath(V.add(P(q.el), n2), V.add(P(q.wr), n2), s * 0.032), "avantbras", q.name);
+          bFill(bonePath(V.sub(P(q.el), n2), V.sub(P(q.wr), n2), s * 0.032), "avantbras", q.name);
+          const hand = new Path2D();
+          for (const f of [q.ix, q.pk]) if (vis(f)) { hand.moveTo(P(q.wr).x, P(q.wr).y); hand.lineTo(P(f).x, P(f).y); }
+          bStroke(hand, Math.max(2, s * 0.025), "main", q.name);
+        }
+      }
+      if (vis(q.kn)) {
+        bFill(bonePath(P(q.hi), P(q.kn), s * 0.085), "femur", q.name);
+        if (vis(q.an)) {
+          const n2 = V.mul(V.perp(V.norm(V.sub(P(q.an), P(q.kn)))), s * 0.03 * q.sg);
+          bFill(bonePath(V.sub(P(q.kn), n2), V.sub(P(q.an), n2), s * 0.06), "jambe", q.name);
+          bFill(bonePath(V.add(P(q.kn), V.mul(n2, 1.6)), V.add(P(q.an), V.mul(n2, 1.4)), s * 0.028), "jambe", q.name);
+          const foot = new Path2D();
+          for (const f of [q.ft, q.heel]) if (vis(f)) { foot.moveTo(P(q.an).x, P(q.an).y); foot.lineTo(P(f).x, P(f).y); }
+          bStroke(foot, Math.max(2, s * 0.03), "pied", q.name);
+        }
+      }
+    }
+  }
+
+  /* ----- sélection et noms ----- */
+  if (S.selected) {
+    const hit = S.shapes.filter((x) => x.key === S.selected.key && x.side === S.selected.side);
+    ctx.save(); ctx.strokeStyle = C.accent; ctx.lineWidth = Math.max(2, s * 0.012); ctx.shadowColor = C.accent; ctx.shadowBlur = 12;
+    hit.forEach((x) => ctx.stroke(x.path)); ctx.restore();
+  }
+  if (S.names) drawNames(L, s);
+  return true;
+}
+
+function drawNames(L, s) {
+  const tags = [];
+  const P = (i) => L[i];
+  const vis = (i) => (L[i].v ?? 1) > 0.35;
+  const Sm = V.mid(P(11), P(12)), Hm = V.mid(P(23), P(24));
+  if (S.layer !== "muscles") {
+    tags.push([V.lerp(Sm, Hm, 0.25), "Côtes"]);
+    if (vis(13)) tags.push([V.lerp(P(11), P(13), 0.5), "Humérus"]);
+    if (vis(25)) tags.push([V.lerp(P(23), P(25), 0.5), "Fémur"]);
+    tags.push([V.lerp(Sm, Hm, 1.04), "Bassin"]);
+  }
+  if (S.layer !== "bones") {
+    tags.push([V.lerp(Sm, Hm, 0.62), "Abdominaux"]);
+    if (vis(14)) tags.push([V.lerp(P(12), P(14), 0.58), "Biceps"]);
+    if (vis(26)) tags.push([V.lerp(P(24), P(26), 0.5), "Quadriceps"]);
+    tags.push([V.lerp(P(12), Sm, 0.5), "Pectoral"]);
+  }
+  ctx.save();
+  const fs = Math.max(12, s * 0.07);
+  ctx.font = `600 ${fs}px Outfit, system-ui, sans-serif`; ctx.textBaseline = "middle";
+  for (const [p, t] of tags) {
+    const w = ctx.measureText(t).width + fs;
+    ctx.fillStyle = "rgba(11,16,20,0.82)"; ctx.beginPath(); ctx.roundRect(p.x - w / 2, p.y - fs * 0.8, w, fs * 1.6, fs * 0.4); ctx.fill();
+    ctx.fillStyle = "#e8eef0"; ctx.textAlign = "center"; ctx.fillText(t, p.x, p.y);
+  }
+  ctx.restore();
+}
+
+function drawPoints(L) {
+  ctx.save();
+  for (const p of L) {
+    ctx.fillStyle = (p.v ?? 1) > 0.35 ? C.accent : "rgba(232,176,74,0.7)";
+    ctx.beginPath(); ctx.arc(p.x, p.y, Math.max(3, canvas.width / 260), 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* ---------- rendu ---------- */
+function fitCanvas(w, h) {
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  const sw = stage.clientWidth, shh = stage.clientHeight;
+  const k = Math.min(sw / w, shh / h);
+  canvas.style.width = `${Math.floor(w * k)}px`; canvas.style.height = `${Math.floor(h * k)}px`;
+}
+function rawSize(m) { return m instanceof HTMLVideoElement ? [m.videoWidth, m.videoHeight] : [m.naturalWidth, m.naturalHeight]; }
+// affichage plafonné à 1600 px : les photos de téléphone (12 Mpx et plus) saturent la mémoire graphique
+function mediaSize(m) {
+  const [w, h] = rawSize(m); if (!w || !h) return [0, 0];
+  const k = Math.min(1, 1600 / Math.max(w, h));
+  return [Math.round(w * k), Math.round(h * k)];
+}
+// image envoyée au détecteur : redessinée (orientation de la photo appliquée) et réduite à 960 px
+const work = document.createElement("canvas"), wctx = work.getContext("2d", { willReadFrequently: false });
+function workFrame(m, w, h) {
+  const k = Math.min(1, 960 / Math.max(w, h));
+  const ww = Math.round(w * k), wh = Math.round(h * k);
+  if (work.width !== ww || work.height !== wh) { work.width = ww; work.height = wh; }
+  wctx.drawImage(m, 0, 0, ww, wh);
+  return work;
+}
+
+function smooth(raw) {
+  if (!S.smooth || S.source === "image") { S.smooth = raw.map((p) => ({ ...p })); return S.smooth; }
+  // lissage adaptatif : fort quand le corps est immobile (moins de tremblement), nul quand il bouge vite (pas de retard)
+  const sh = Math.hypot(raw[11].x - raw[12].x, raw[11].y - raw[12].y) || 100;
+  S.smooth = raw.map((p, i) => {
+    const q = S.smooth[i], dist = Math.hypot(p.x - q.x, p.y - q.y);
+    const a = Math.min(1, 0.35 + dist / (0.08 * sh));
+    return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a, v: p.v };
+  });
+  return S.smooth;
+}
+
+function analyse(ts) {
+  const m = S.media; const [w, h] = mediaSize(m);
+  if (!w || !h) return;
+  fitCanvas(w, h);
+  drawFrame(m, w, h);
+  let found = false;
+  const want = S.source === "image" ? "IMAGE" : "VIDEO";
+  if (landmarker && mode !== want) { setMode(want); return; }
+  if (landmarker) {
+    let res;
+    const src = workFrame(m, w, h);
+    try { res = S.source === "image" ? landmarker.detect(src) : landmarker.detectForVideo(src, ts); }
+    catch (e) { showMsg("La détection a échoué sur cette image : " + e.message, true); return; }
+    const lm = res.landmarks && res.landmarks[0];
+    if (S.m.frames === 0) S.m.start = performance.now();
+    S.m.frames++;
+    if (lm) {
+      const raw = lm.map((p) => ({ x: (S.mirror ? 1 - p.x : p.x) * w, y: p.y * h, v: p.visibility }));
+      S.landmarks = smooth(raw);
+      const key = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28];
+      S.m.visSum += key.reduce((acc, i) => acc + (raw[i].v ?? 0), 0) / key.length;
+      found = drawAnatomy(S.landmarks);
+      if (S.points) drawPoints(S.landmarks);
+      if (found) { S.m.found++; if (S.m.first === null) S.m.first = performance.now() - S.m.start; }
+    } else { S.landmarks = null; S.shapes = []; S.smooth = null; }
+  }
+  setState(landmarker ? (found ? "ok" : "search") : "load");
+  S.m.fpsN++;
+  const now = performance.now();
+  if (now - S.m.fpsT > 1000) { S.m.fps = (S.m.fpsN * 1000) / (now - S.m.fpsT); S.m.fpsN = 0; S.m.fpsT = now; }
+  renderMetrics();
+}
+
+// caméra frontale : image affichée en miroir, comme un miroir de salle de bain
+function drawFrame(m, w, h) {
+  if (S.mirror && S.source === "live") { ctx.save(); ctx.translate(w, 0); ctx.scale(-1, 1); ctx.drawImage(m, 0, 0, w, h); ctx.restore(); }
+  else ctx.drawImage(m, 0, 0, w, h);
+}
+function redrawStill() {
+  // ré-affiche l'image courante sans relancer la détection (changement de calque, sélection)
+  if (!S.media || !S.landmarks) return;
+  const [w, h] = mediaSize(S.media);
+  ctx.drawImage(S.media, 0, 0, w, h);
+  drawAnatomy(S.landmarks);
+  if (S.points) drawPoints(S.landmarks);
+}
+
+function loop() {
+  rafId = requestAnimationFrame(loop);
+  const v = S.media;
+  if (!(v instanceof HTMLVideoElement) || v.readyState < 2) return;
+  if (S.paused) return;
+  if (v.currentTime === lastVideoTime) return;
+  lastVideoTime = v.currentTime;
+  analyse(performance.now());
+}
+
+/* ---------- sources ---------- */
+function stopAll() {
+  cancelAnimationFrame(rafId);
+  if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; }
+  if (S.media instanceof HTMLVideoElement) { S.media.pause(); if (S.media.src.startsWith("blob:")) URL.revokeObjectURL(S.media.src); }
+  S.media = null; S.landmarks = null; S.smooth = null; S.selected = null; S.paused = false; lastVideoTime = -1;
+  S.mirror = false; $("bFlip").hidden = true;
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  $("card").hidden = true; $("tPause").hidden = true; $("tPause").textContent = "Pause";
+  hideMsg(); resetMetrics();
+}
+
+async function useImage(src, isSample) {
+  stopAll();
+  const img = new Image();
+  img.onload = async () => {
+    S.source = "image"; S.media = img;
+    await setMode("IMAGE");
+    analyse(performance.now());
+    if (landmarker && !S.landmarks) showMsg("Aucun corps détecté sur cette photo. Essaie de face, en cadrant au moins de la tête aux hanches.");
+    if (isSample) showMsg("Exemple. Filme une vraie personne pour tester le calage en mouvement.");
+  };
+  img.onerror = () => showMsg("Cette image ne peut pas être lue. Essaie une photo JPEG ou PNG.", true);
+  img.src = src;
+}
+
+async function useVideo(srcOrStream) {
+  stopAll();
+  const v = document.createElement("video");
+  v.muted = true; v.playsInline = true; v.setAttribute("playsinline", ""); v.loop = true;
+  if (srcOrStream instanceof MediaStream) { v.srcObject = srcOrStream; S.stream = srcOrStream; S.source = "live"; }
+  else { v.src = srcOrStream; S.source = "video"; $("tPause").hidden = false; }
+  S.media = v;
+  await setMode("VIDEO");
+  v.onloadeddata = () => { v.play().catch(() => showMsg("Touche « Pause » puis à nouveau pour lancer la lecture.")); };
+  v.onerror = () => showMsg("Cette vidéo ne peut pas être lue par le navigateur. Filme à nouveau avec l'appareil photo du téléphone.", true);
+  loop();
+}
+
+$("fVideo").addEventListener("change", (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  useVideo(URL.createObjectURL(f)); e.target.value = "";
+});
+$("fPhoto").addEventListener("change", (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  useImage(URL.createObjectURL(f)); e.target.value = "";
+});
+$("bSample").addEventListener("click", () => useImage("exemple.jpg", true));
+let facing = "environment", wakeLock = null;
+async function startLive() {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Ce navigateur ne donne pas accès à la caméra.");
+    const st = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const set = st.getVideoTracks()[0]?.getSettings?.() || {};
+    await useVideo(st);
+    S.mirror = (set.facingMode || facing) === "user";
+    $("bFlip").hidden = false;
+    try { wakeLock = await navigator.wakeLock?.request("screen"); } catch (_) {}
+  } catch (e) {
+    const denied = e && (e.name === "NotAllowedError" || e.name === "SecurityError");
+    showMsg(denied
+      ? "L'accès à la caméra a été refusé. Autorise la caméra pour ce site dans les réglages de Chrome (icône à gauche de l'adresse), puis réessaie."
+      : "Impossible d'ouvrir la caméra : " + (e && e.message ? e.message : e), true);
+  }
+}
+$("bLive").addEventListener("click", () => { facing = "environment"; startLive(); });
+$("bFlip").addEventListener("click", () => { facing = facing === "environment" ? "user" : "environment"; startLive(); });
+$("tPause").addEventListener("click", () => {
+  const v = S.media; if (!(v instanceof HTMLVideoElement)) return;
+  S.paused = !S.paused;
+  if (S.paused) { v.pause(); $("tPause").textContent = "Lecture"; }
+  else { v.play(); $("tPause").textContent = "Pause"; }
+});
+
+/* ---------- calques et options ---------- */
+function setLayer(l) {
+  S.layer = l;
+  $("lBones").setAttribute("aria-pressed", l === "bones");
+  $("lMuscles").setAttribute("aria-pressed", l === "muscles");
+  $("lBoth").setAttribute("aria-pressed", l === "both");
+  if (S.selected && ((l === "bones" && S.selected.layer === "muscles") || (l === "muscles" && S.selected.layer === "bones"))) { S.selected = null; $("card").hidden = true; }
+  if (S.source === "image" || S.paused) redrawStill();
+}
+$("lBones").onclick = () => setLayer("bones");
+$("lMuscles").onclick = () => setLayer("muscles");
+$("lBoth").onclick = () => setLayer("both");
+for (const [id, k] of [["tNames", "names"], ["tPoints", "points"]]) {
+  $(id).onclick = () => { S[k] = !S[k]; $(id).setAttribute("aria-pressed", S[k]); if (S.source === "image" || S.paused) redrawStill(); };
+}
+
+/* ---------- toucher : nom de la structure ---------- */
+canvas.addEventListener("click", (e) => {
+  const rc = canvas.getBoundingClientRect();
+  const x = (e.clientX - rc.left) * (canvas.width / rc.width), y = (e.clientY - rc.top) * (canvas.height / rc.height);
+  let hit = null;
+  // les os sont dessinés par-dessus : on les teste d'abord
+  const order = [...S.shapes].reverse();
+  for (const sh of order) {
+    let inside;
+    if (sh.how === "stroke") { ctx.save(); ctx.lineWidth = sh.lw * 1.6; inside = ctx.isPointInStroke(sh.path, x, y); ctx.restore(); }
+    else inside = ctx.isPointInPath(sh.path, x, y);
+    if (inside) { hit = sh; break; }
+  }
+  if (!hit) { S.selected = null; $("card").hidden = true; if (S.source === "image" || S.paused) redrawStill(); return; }
+  S.selected = hit;
+  const { title, text } = label(hit.key, hit.side);
+  $("cardKind").textContent = hit.layer === "bones" ? "Os" : "Muscle";
+  $("cardSw").style.background = hit.layer === "bones" ? C.bone : C.muscle;
+  $("cardTitle").textContent = title;
+  $("cardText").textContent = text;
+  $("card").hidden = false;
+  hideMsg();
+  if (S.source === "image" || S.paused) redrawStill();
+});
+
+/* ---------- état et métriques ---------- */
+function setState(s) {
+  const b = $("stateBtn"); b.dataset.s = s;
+  $("stateTxt").textContent = { load: "Chargement…", ok: "Corps calé", search: "Recherche du corps", err: "Erreur" }[s];
+}
+$("stateBtn").addEventListener("click", () => {
+  const m = $("metrics"); m.hidden = !m.hidden; $("stateBtn").setAttribute("aria-expanded", !m.hidden); renderMetrics();
+});
+function renderMetrics() {
+  const el = $("metrics"); if (el.hidden) return;
+  const m = S.m;
+  const pct = m.frames ? Math.round((100 * m.found) / m.frames) : 0;
+  const vis = m.frames ? Math.round((100 * m.visSum) / Math.max(1, m.frames)) : 0;
+  const rows = S.source === "image"
+    ? [["Corps détecté", m.found ? "oui" : "non"], ["Visibilité points", vis + " %"]]
+    : [["Images analysées", m.frames], ["Calage réussi", pct + " %"], ["1ʳᵉ détection", m.first === null ? "—" : (m.first / 1000).toFixed(1) + " s"], ["Visibilité points", vis + " %"], ["Images / s", m.fps.toFixed(0)]];
+  const [rw, rh] = S.media ? rawSize(S.media) : [0, 0];
+  rows.push(["Moteur", S.engine || "—"], ["Taille source", rw ? `${rw}×${rh}` : "—"], ["Hanches", S.hipsEstimated ? "estimées" : "vues"]);
+  el.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("") +
+    `<div class="note">Objectif du cadrage : calage réussi en moins de 10 s dans plus de 70 % des essais.</div>`;
+}
+
+/* ---------- messages ---------- */
+function showMsg(t, err) { const m = $("msg"); m.textContent = t; m.classList.toggle("err", !!err); m.hidden = false; }
+function hideMsg() { $("msg").hidden = true; }
+
+window.addEventListener("resize", () => { if (S.media) { const [w, h] = mediaSize(S.media); if (w) fitCanvas(w, h); } });
+
+/* ---------- démarrage ---------- */
+useImage("exemple.jpg", true);
+try {
+  await initLandmarker();
+  if (S.source === "image" && S.media) { await setMode("IMAGE"); analyse(performance.now()); }
+} catch (e) {
+  setState("err");
+  showMsg("Le moteur de détection n'a pas pu démarrer dans ce navigateur (" + (e && e.message ? e.message : e) + "). Essaie avec Chrome à jour sur Android.", true);
+}
+</script>
+
+</body>
+</html>
