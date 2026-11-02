@@ -114,7 +114,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.5.1</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.6</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -146,7 +146,7 @@ button { line-height: 1.2; }
       <label class="filebtn"><input id="fVideo" type="file" accept="video/*" capture="environment">Filmer une vidéo</label>
       <label class="filebtn"><input id="fPhoto" type="file" accept="image/*" capture="environment">Photo</label>
       <button id="bSample">Exemple</button>
-      <button id="bShare">Partager le test</button>
+      <button id="bShare">Enregistrer le test</button>
     </div>
     <div class="hint">Filme une personne de face, en entier ou le haut du corps, avec des vêtements près du corps. Touche une zone pour voir son nom.</div>
   </section>
@@ -765,8 +765,8 @@ function renderMetrics() {
     `<div class="note">Objectif du cadrage : calage réussi en moins de 10 s dans plus de 70 % des essais.</div>`;
 }
 
-/* ---------- partager le test : capture + mesures, via le menu de partage du téléphone ---------- */
-const VERSION = "v0.5.1";
+/* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
+const VERSION = "v0.6";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
   const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer];
@@ -796,23 +796,16 @@ $("bShare").addEventListener("click", async () => {
   const was = S.paused; S.paused = true;          // fige l'image le temps de la capture
   const blob = await testImage(text);
   S.paused = was;
-  const file = new File([blob], `test-beaute-interieure-${Date.now()}.png`, { type: "image/png" });
-  try {
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], text, title: "Test Beauté intérieure" });
-      return;
-    }
-  } catch (e) { if (e && e.name === "AbortError") return; }
-  // repli : texte copié + image téléchargée
-  try { await navigator.clipboard.writeText(text); } catch (_) {}
-  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
+  // le menu de partage ne permet pas de choisir une discussion existante : on enregistre l'image, à y joindre
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `test-beaute-interieure-${Date.now()}.png`; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  showMsg("Partage indisponible sur ce navigateur : l'image a été téléchargée et les mesures copiées. Colle-les dans la discussion Claude.");
+  showMsg("Image enregistrée dans tes téléchargements, mesures incluses. Joins-la à la discussion Claude. Touche ce message pour le fermer.");
 });
 
 /* ---------- messages ---------- */
 function showMsg(t, err) { const m = $("msg"); m.textContent = t; m.classList.toggle("err", !!err); m.hidden = false; }
 function hideMsg() { $("msg").hidden = true; }
+$("msg").addEventListener("click", hideMsg);
 
 window.addEventListener("resize", () => { if (S.media) { const [w, h] = mediaSize(S.media); if (w) fitCanvas(w, h); } });
 
