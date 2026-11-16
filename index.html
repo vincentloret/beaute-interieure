@@ -115,7 +115,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.8.3</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.9</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -132,6 +132,10 @@ button { line-height: 1.2; }
 
   <section class="controls">
     <div class="row">
+      <div class="seg" role="group" aria-label="Ce que tu filmes">
+        <button id="gBody" aria-pressed="true">Corps</button>
+        <button id="gHand" aria-pressed="false">Main</button>
+      </div>
       <div class="seg" role="group" aria-label="Calques">
         <button id="lBones" aria-pressed="false">Os</button>
         <button id="lMuscles" aria-pressed="false">Muscles</button>
@@ -149,7 +153,7 @@ button { line-height: 1.2; }
       <button id="bSample">Exemple</button>
       <button id="bShare">Enregistrer le test</button>
     </div>
-    <div class="hint">Filme une personne de face, en entier ou le haut du corps, avec des vêtements près du corps. Touche une zone pour voir son nom.</div>
+    <div class="hint" id="hint">Filme une personne de face, en entier ou le haut du corps, avec des vêtements près du corps. Touche une zone pour voir son nom.</div>
   </section>
 </div>
 
@@ -169,6 +173,8 @@ const C = {
 /* ---------- état ---------- */
 const S = {
   layer: "both", names: false, points: false,
+  target: "body",          // "body" | "hand" : ce que l'utilisateur dit filmer
+  hands: null,             // mode main : points lissés de chaque main
   source: null,            // "image" | "video" | "live"
   media: null,             // HTMLImageElement | HTMLVideoElement
   landmarks: null, smooth: null,
@@ -176,7 +182,7 @@ const S = {
   paused: false, stream: null,
   m: null,                 // métriques
 };
-let landmarker = null, handLandmarker = null, mode = null, rafId = 0, lastVideoTime = -1;
+let landmarker = null, handLandmarker = null, mode = null, handCfg = "IMAGE/body", rafId = 0, lastVideoTime = -1;
 
 function resetMetrics() {
   S.stable = 0; S.reject = ""; S.handBoxes = []; S.handWait = Infinity; S.handMs = null; S.handSeenAt = 0; S.handHeld = false; S.handFresh = false;
@@ -220,8 +226,20 @@ async function initHands() {
       { wasmLoaderPath: base + "vision_wasm_internal.js", wasmBinaryPath: base + "vision_wasm_internal.wasm" },
       { baseOptions: { modelAssetPath: base + "hand_landmarker.task", delegate: S.engine === "GPU" ? "GPU" : "CPU" }, runningMode: "IMAGE", numHands: 2 });
     handLandmarker.detect(work); // la 1re détection est lente : on la fait ici plutôt que pendant le film
+    await configureHands();
     if (S.source === "image" && S.media) analyse(performance.now());
   } catch (e) { S.handError = true; }
+}
+/* Mode main : suivi vidéo et seuils bas (main coupée par le cadre, doigts pliés, autre angle).
+   Mode corps : la main ne sert qu'au filtre, image par image, seuils par défaut. */
+async function configureHands() {
+  if (!handLandmarker) return;
+  const run = S.target === "hand" && S.source !== "image" ? "VIDEO" : "IMAGE";
+  const want = run + "/" + S.target;
+  if (handCfg === want) return;
+  handCfg = want;
+  const th = S.target === "hand" ? 0.3 : 0.5;
+  await handLandmarker.setOptions({ runningMode: run, minHandDetectionConfidence: th, minHandPresenceConfidence: th, minTrackingConfidence: th });
 }
 async function setMode(m) {
   if (landmarker && mode !== m) { await landmarker.setOptions({ runningMode: m }); mode = m; }
@@ -250,6 +268,12 @@ const INFO = {
   humerus: ["Humérus", "L'os du bras, de l'épaule jusqu'au coude."],
   avantbras: ["Radius et ulna", "Les deux os de l'avant-bras. Ils se croisent quand tu tournes la paume vers le bas."],
   main: ["Os de la main", "27 os environ dans chaque main, ce qui permet des gestes très précis."],
+  carpe: ["Os du carpe", "8 petits os du poignet, rangés sur deux lignes. Ils rendent le poignet souple."],
+  metacarpe: ["Métacarpiens", "5 os longs qui forment la paume, un par doigt."],
+  phalanges: ["Phalanges", "Les os des doigts : 3 par doigt, 2 pour le pouce. 14 en tout dans chaque main."],
+  thenar: ["Muscles du pouce", "Ils forment la partie charnue sous le pouce et lui permettent de toucher les autres doigts."],
+  hypothenar: ["Muscles du petit doigt", "Ils forment le bord charnu de la paume, côté petit doigt."],
+  interosseux: ["Muscles interosseux", "Petits muscles entre les métacarpiens : ils écartent et rapprochent les doigts."],
   femur: ["Fémur", "L'os de la cuisse. C'est le plus long et le plus solide du corps."],
   jambe: ["Tibia et fibula", "Les deux os de la jambe. Le tibia porte presque tout le poids du corps."],
   pied: ["Os du pied", "26 os par pied, qui amortissent chaque pas."],
@@ -499,6 +523,94 @@ function drawAnatomy(L) {
   return true;
 }
 
+/* ---------- mode main : os dessinés à partir des 21 points de MediaPipe Hand ----------
+   0 poignet ; pouce 1-4 ; index 5-8 ; majeur 9-12 ; annulaire 13-16 ; auriculaire 17-20 */
+function drawHands(hands) {
+  S.shapes = [];
+  if (!hands || !hands.length) return false;
+  ctx.save(); ctx.fillStyle = "rgba(8, 14, 20, 0.28)"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.restore();
+  for (const H of hands) drawHand(H);
+  if (S.selected) {
+    const hit = S.shapes.filter((x) => x.key === S.selected.key);
+    ctx.save(); ctx.strokeStyle = C.accent; ctx.lineWidth = 3; ctx.shadowColor = C.accent; ctx.shadowBlur = 12;
+    hit.forEach((x) => ctx.stroke(x.path)); ctx.restore();
+  }
+  return true;
+}
+// petit os de la main : fût étroit, extrémités arrondies un peu plus larges
+function capsulePath(a, b, w) {
+  const dir = V.norm(V.sub(b, a)), n = V.perp(dir), m = V.mid(a, b), an = Math.atan2(n.y, n.x);
+  const P = (c, k) => V.add(c, V.mul(n, k));
+  const p = new Path2D(), a1 = P(a, w / 2), b1 = P(b, w / 2), mm = P(m, w * 0.36), mn = P(m, -w * 0.36);
+  p.moveTo(a1.x, a1.y); p.quadraticCurveTo(mm.x, mm.y, b1.x, b1.y);
+  p.arc(b.x, b.y, w / 2, an, an + Math.PI, true);
+  p.quadraticCurveTo(mn.x, mn.y, P(a, -w / 2).x, P(a, -w / 2).y);
+  p.arc(a.x, a.y, w / 2, an + Math.PI, an, true);
+  p.closePath();
+  return p;
+}
+function drawHand(H) {
+  const s = V.len(V.sub(H[9], H[0]));            // taille de la paume
+  if (s < 10) return;
+  const axis = V.norm(V.sub(H[9], H[0])), across = V.norm(V.sub(H[5], H[17]));
+  const wW = V.len(V.sub(H[5], H[17])) * 0.8;    // largeur du poignet
+  const showB = S.layer !== "muscles", showM = S.layer !== "bones";
+  const seg = (a, b, k0, k1) => [V.lerp(a, b, k0), V.lerp(a, b, k1)];
+  const fill = (path, color, stroke, alpha, layer, key) => {
+    ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = color; ctx.fill(path);
+    ctx.globalAlpha = 1; ctx.strokeStyle = stroke; ctx.lineWidth = Math.max(1, s * 0.012); ctx.stroke(path); ctx.restore();
+    shape(path, layer, key);
+  };
+  const base = (m) => V.lerp(H[0], H[m], 0.3);   // départ des métacarpiens, au bout du carpe
+
+  if (showM) {
+    const a = showB ? 0.55 : 0.78;
+    const mF = (p, key) => fill(p, C.muscle, "#7d1f1b", a, "muscles", key);
+    mF(ellipsePath(V.lerp(V.lerp(H[1], H[2], 0.4), H[5], 0.25), V.sub(H[2], H[0]), V.len(V.sub(H[2], H[0])) * 0.42, s * 0.2), "thenar");
+    mF(ellipsePath(V.lerp(V.lerp(H[0], H[17], 0.5), H[9], 0.15), V.sub(H[17], H[0]), V.len(V.sub(H[17], H[0])) * 0.42, s * 0.13), "hypothenar");
+    for (const [m1, m2] of [[5, 9], [9, 13], [13, 17]]) {
+      const c = V.mid(V.lerp(base(m1), H[m1], 0.55), V.lerp(base(m2), H[m2], 0.55));
+      mF(ellipsePath(c, axis, s * 0.27, s * 0.05), "interosseux");
+    }
+  }
+  if (!showB) return;
+  const bF = (p, key) => fill(p, C.bone, "#6f6248", 0.92, "bones", key);
+  // radius et ulna (extrémités, côté poignet)
+  for (const [g, w] of [[0.28, 0.13], [-0.28, 0.1]]) {
+    const o = V.mul(across, g * wW);
+    bF(bonePath(V.add(V.sub(H[0], V.mul(axis, s * 0.75)), o), V.add(V.sub(H[0], V.mul(axis, s * 0.08)), o), s * w), "avantbras");
+  }
+  // carpe : deux rangées de 4 petits os
+  const carp = new Path2D();
+  for (const [t, wr] of [[0.04, 0.85], [0.17, 1]]) {
+    const c = V.add(H[0], V.mul(axis, t * s)), row = wW * wr;
+    for (let k = 0; k < 4; k++) {
+      const q = V.add(c, V.mul(across, (k - 1.5) * row / 4));
+      const rx = row / 9, ry = s * 0.06;
+      carp.moveTo(q.x + rx, q.y); carp.ellipse(q.x, q.y, rx, ry, Math.atan2(across.y, across.x), 0, Math.PI * 2);
+    }
+  }
+  bF(carp, "carpe");
+  // métacarpiens
+  const meta = new Path2D(), phal = new Path2D();
+  const add = (P, path) => path.addPath(P);
+  for (const [m, w] of [[5, 0.13], [9, 0.13], [13, 0.12], [17, 0.11]]) {
+    const [a, b] = seg(base(m), H[m], 0.05, 0.92); add(capsulePath(a, b, s * w), meta);
+  }
+  { const [a, b] = seg(V.lerp(H[0], H[1], 0.7), H[2], 0, 0.9); add(capsulePath(a, b, s * 0.14), meta); }
+  bF(meta, "metacarpe");
+  // phalanges : un petit espace à chaque articulation
+  for (const f of [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20], [2, 3, 4]]) {
+    const thumb = f.length === 3, ws = thumb ? [0.13, 0.11] : [0.12, 0.1, 0.085];
+    for (let k = 0; k < f.length - 1; k++) {
+      const last = k === f.length - 2;
+      const [a, b] = seg(H[f[k]], H[f[k + 1]], 0.1, last ? 0.82 : 0.9);
+      add(capsulePath(a, b, s * ws[k]), phal);
+    }
+  }
+  bF(phal, "phalanges");
+}
+
 function drawNames(L, s) {
   const tags = [];
   const P = (i) => L[i];
@@ -633,11 +745,48 @@ function smooth(raw) {
   return S.smooth;
 }
 
+function smoothHands(list) {
+  if (!S.hands || S.hands.length !== list.length || S.source === "image") return list.map((H) => H.map((p) => ({ ...p })));
+  return list.map((H, j) => {
+    const prev = S.hands[j], sz = V.len(V.sub(H[9], H[0])) || 50;
+    return H.map((p, i) => {
+      const q = prev[i], a = Math.min(1, 0.4 + Math.hypot(p.x - q.x, p.y - q.y) / (0.15 * sz));
+      return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a };
+    });
+  });
+}
+function analyseHand(m, w, h, ts) {
+  if (!handLandmarker) { setState("load"); return; }
+  const want = (S.source === "image" ? "IMAGE" : "VIDEO") + "/hand";
+  if (handCfg !== want) { configureHands().then(() => { if (S.source === "image") analyse(performance.now()); }); return; }
+  const src = workFrame(m, w, h), t0 = performance.now();
+  let res;
+  try { res = S.source === "image" ? handLandmarker.detect(src) : handLandmarker.detectForVideo(src, ts); }
+  catch (e) { showMsg("La détection de la main a échoué : " + e.message, true); return; }
+  S.handMs = performance.now() - t0;
+  if (S.m.frames === 0) S.m.start = performance.now();
+  S.m.frames++;
+  const list = (res.landmarks || []).map((pts) => pts.map((p) => ({ x: (S.mirror ? 1 - p.x : p.x) * w, y: p.y * h })));
+  S.hands = list.length ? smoothHands(list) : null;
+  const found = drawHands(S.hands);
+  if (S.points && S.hands) drawPoints(S.hands.flat());
+  if (found) { S.m.found++; if (S.m.first === null) S.m.first = performance.now() - S.m.start; }
+  setState(found ? "ok" : "search");
+}
+
 function analyse(ts) {
   const m = S.media; const [w, h] = mediaSize(m);
   if (!w || !h) return;
   fitCanvas(w, h);
   drawFrame(m, w, h);
+  if (S.target === "hand") {
+    analyseHand(m, w, h, ts);
+    S.m.fpsN++;
+    const now = performance.now();
+    if (now - S.m.fpsT > 1000) { S.m.fps = (S.m.fpsN * 1000) / (now - S.m.fpsT); S.m.fpsN = 0; S.m.fpsT = now; }
+    renderMetrics();
+    return;
+  }
   let found = false;
   const want = S.source === "image" ? "IMAGE" : "VIDEO";
   if (landmarker && mode !== want) { setMode(want); return; }
@@ -678,8 +827,14 @@ function drawFrame(m, w, h) {
 }
 function redrawStill() {
   // ré-affiche l'image courante sans relancer la détection (changement de calque, sélection)
-  if (!S.media || !S.landmarks) return;
+  if (!S.media) return;
   const [w, h] = mediaSize(S.media);
+  if (S.target === "hand") {
+    drawFrame(S.media, w, h); drawHands(S.hands);
+    if (S.points && S.hands) drawPoints(S.hands.flat());
+    return;
+  }
+  if (!S.landmarks) return;
   ctx.drawImage(S.media, 0, 0, w, h);
   if (!S.reject) drawAnatomy(S.landmarks);
   if (S.points) drawPoints(S.landmarks);
@@ -700,7 +855,7 @@ function stopAll() {
   cancelAnimationFrame(rafId);
   if (S.stream) { S.stream.getTracks().forEach((t) => t.stop()); S.stream = null; }
   if (S.media instanceof HTMLVideoElement) { S.media.pause(); if (S.media.src.startsWith("blob:")) URL.revokeObjectURL(S.media.src); }
-  S.media = null; S.landmarks = null; S.smooth = null; S.selected = null; S.paused = false; lastVideoTime = -1;
+  S.media = null; S.landmarks = null; S.smooth = null; S.hands = null; S.selected = null; S.paused = false; lastVideoTime = -1;
   S.mirror = false; $("bFlip").hidden = true;
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
   $("card").hidden = true; $("tPause").hidden = true; $("tPause").textContent = "Pause";
@@ -712,9 +867,10 @@ async function useImage(src, isSample) {
   const img = new Image();
   img.onload = async () => {
     S.source = "image"; S.media = img;
-    await setMode("IMAGE");
+    await setMode("IMAGE"); await configureHands();
     analyse(performance.now());
-    if (landmarker && !S.landmarks) showMsg("Aucun corps détecté sur cette photo. Essaie de face, en cadrant au moins de la tête aux hanches.");
+    if (S.target === "hand") { if (handLandmarker && !S.hands) showMsg("Aucune main détectée sur cette photo. Essaie la main entière, bien éclairée."); }
+    else if (landmarker && !S.landmarks) showMsg("Aucun corps détecté sur cette photo. Essaie de face, en cadrant au moins de la tête aux hanches.");
     if (isSample) showMsg("Exemple. Filme une vraie personne pour tester le calage en mouvement.");
   };
   img.onerror = () => showMsg("Cette image ne peut pas être lue. Essaie une photo JPEG ou PNG.", true);
@@ -728,7 +884,7 @@ async function useVideo(srcOrStream) {
   if (srcOrStream instanceof MediaStream) { v.srcObject = srcOrStream; S.stream = srcOrStream; S.source = "live"; }
   else { v.src = srcOrStream; S.source = "video"; $("tPause").hidden = false; }
   S.media = v;
-  await setMode("VIDEO");
+  await setMode("VIDEO"); await configureHands();
   v.onloadeddata = () => { v.play().catch(() => showMsg("Touche « Pause » puis à nouveau pour lancer la lecture.")); };
   v.onerror = () => showMsg("Cette vidéo ne peut pas être lue par le navigateur. Filme à nouveau avec l'appareil photo du téléphone.", true);
   loop();
@@ -785,6 +941,23 @@ for (const [id, k] of [["tNames", "names"], ["tPoints", "points"]]) {
   $(id).onclick = () => { S[k] = !S[k]; $(id).setAttribute("aria-pressed", S[k]); if (S.source === "image" || S.paused) redrawStill(); };
 }
 
+const HINTS = {
+  body: "Filme une personne de face, en entier ou le haut du corps, avec des vêtements près du corps. Touche une zone pour voir son nom.",
+  hand: "Filme ta main ou celle de quelqu'un, à 30 à 50 cm, doigts visibles. Touche un os pour voir son nom.",
+};
+function setTarget(t) {
+  if (S.target === t) return;
+  S.target = t;
+  $("gBody").setAttribute("aria-pressed", t === "body");
+  $("gHand").setAttribute("aria-pressed", t === "hand");
+  $("hint").textContent = HINTS[t];
+  S.selected = null; $("card").hidden = true; S.shapes = []; S.hands = null; S.landmarks = null; S.smooth = null;
+  resetMetrics(); hideMsg();
+  configureHands().then(() => { if (S.media && (S.source === "image" || S.paused)) analyse(performance.now()); });
+}
+$("gBody").onclick = () => setTarget("body");
+$("gHand").onclick = () => setTarget("hand");
+
 /* ---------- toucher : nom de la structure ---------- */
 canvas.addEventListener("click", (e) => {
   const rc = canvas.getBoundingClientRect();
@@ -813,7 +986,8 @@ canvas.addEventListener("click", (e) => {
 /* ---------- état et métriques ---------- */
 function setState(s) {
   const b = $("stateBtn"); b.dataset.s = s;
-  $("stateTxt").textContent = { load: "Chargement…", ok: "Corps calé", search: "Recherche du corps", hand: "Main détectée", err: "Erreur" }[s];
+  const hand = S.target === "hand";
+  $("stateTxt").textContent = { load: "Chargement…", ok: hand ? "Main calée" : "Corps calé", search: hand ? "Recherche de la main" : "Recherche du corps", hand: "Main détectée", err: "Erreur" }[s];
 }
 $("stateBtn").addEventListener("click", () => {
   const m = $("metrics"); m.hidden = !m.hidden; $("stateBtn").setAttribute("aria-expanded", !m.hidden); renderMetrics();
@@ -826,6 +1000,14 @@ function metricsRows() {
     ? [["Corps détecté", m.found ? "oui" : "non"], ["Visibilité points", vis + " %"]]
     : [["Images analysées", m.frames], ["Calage réussi", pct + " %"], ["1ʳᵉ détection", m.first === null ? "—" : (m.first / 1000).toFixed(1) + " s"], ["Visibilité points", vis + " %"], ["Images / s", m.fps.toFixed(0)]];
   const [rw, rh] = S.media ? rawSize(S.media) : [0, 0];
+  if (S.target === "hand") {
+    rows.length = 0;
+    if (S.source === "image") rows.push(["Main détectée", m.found ? "oui" : "non"]);
+    else rows.push(["Images analysées", m.frames], ["Main calée", pct + " %"], ["1ʳᵉ détection", m.first === null ? "—" : (m.first / 1000).toFixed(1) + " s"], ["Images / s", m.fps.toFixed(0)]);
+    rows.push(["Moteur", S.engine || "—"], ["Taille source", rw ? `${rw}×${rh}` : "—"], ["Mode", "main"],
+      ["Mains vues", S.hands ? S.hands.length : 0], ["Détection main", S.handMs === null ? "—" : Math.round(S.handMs) + " ms"]);
+    return rows;
+  }
   rows.push(["Moteur", S.engine || "—"], ["Taille source", rw ? `${rw}×${rh}` : "—"], ["Hanches", S.hipsEstimated ? "estimées" : "vues"]);
   // deux valeurs pour régler plus tard le filtre des fausses détections (main, visage très proche)
   const L = S.landmarks;
@@ -846,10 +1028,10 @@ function renderMetrics() {
 }
 
 /* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
-const VERSION = "v0.8.3";
+const VERSION = "v0.9";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
-  const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer];
+  const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer] + (S.target === "hand" ? " · Mode : main" : " · Mode : corps");
   const lines = [`Beauté intérieure, prototype ${VERSION}`, `Test du ${new Date().toLocaleString("fr-FR")}`,
     `Source : ${src} · Calque : ${calque} · État : ${$("stateTxt").textContent}`,
     ...metricsRows().map(([k, v]) => `${k} : ${v}`),
