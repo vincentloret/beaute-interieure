@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Oscar et tes os</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap">
+<style>
+/* Épisode prototype « squelette » : histoire, quiz, réalité augmentée, animation, schéma, défi, partage.
+   Un seul thème sombre (cohérent avec l'écran caméra). */
+:root {
+  --bg: #121826;
+  --bg2: #1a2233;
+  --panel: #222c42;
+  --line: rgba(200, 215, 240, 0.18);
+  --fg: #f3f1ea;
+  --muted: #aab4c8;
+  --accent: #58c4b8;
+  --accent-ink: #062521;
+  --ok: #6fd39b;
+  --bad: #ff8a7a;
+  --bone: #f1e7d0;
+  --muscle: #d4473f;
+  --plate: #6fb6ff;
+  --font: "Outfit", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 17px; line-height: 1.45; overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; max-width: 560px; margin: 0 auto; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+header { display: flex; align-items: center; gap: 10px; padding: 10px 16px; }
+header .t { flex: 1; min-width: 0; }
+header b { display: block; font-size: 16px; font-weight: 600; }
+header span { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.dots { display: flex; gap: 5px; padding: 0 16px 6px; }
+.dots i { flex: 1; height: 4px; border-radius: 4px; background: var(--line); }
+.dots i.on { background: var(--accent); }
+main { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 16px 12px; }
+section { display: grid; gap: 14px; align-content: start; }
+h1 { font-size: 26px; line-height: 1.15; margin: 4px 0 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 21px; line-height: 1.2; margin: 0; font-weight: 600; text-wrap: balance; }
+p { margin: 0; }
+.muted { color: var(--muted); font-size: 15px; }
+.bubble { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 14px 16px; }
+.bubble.q { border-color: var(--accent); }
+footer { display: flex; gap: 10px; padding: 10px 16px 14px; border-top: 1px solid var(--line); background: var(--bg2); }
+button { font: inherit; font-size: 16px; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px; min-height: 46px; cursor: pointer; }
+button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button.main { flex: 1; background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+button.small { min-height: 40px; padding: 6px 12px; font-size: 15px; }
+button[aria-pressed="true"] { background: var(--fg); color: var(--bg); font-weight: 600; }
+.choices { display: grid; gap: 10px; }
+.choices button { text-align: left; }
+.choices button.good { border-color: var(--ok); background: rgba(111,211,155,.15); }
+.choices button.wrong { border-color: var(--bad); background: rgba(255,138,122,.12); }
+.feedback { font-weight: 500; min-height: 1.45em; }
+.stage { position: relative; background: #000; border-radius: 18px; overflow: hidden; aspect-ratio: 3 / 4; }
+.stage canvas { width: 100%; height: 100%; display: block; object-fit: contain; }
+.stage .over { position: absolute; left: 12px; right: 12px; bottom: 12px; text-align: center; background: rgba(18,24,38,.88); border-radius: 14px; padding: 10px 12px; font-weight: 500; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.info { background: var(--panel); border-radius: 14px; padding: 12px 14px; border-left: 6px solid var(--bone); }
+.info b { display: block; font-size: 18px; }
+.draw { width: 100%; height: auto; max-height: 50vh; object-fit: contain; display: block; background: var(--bg2); border-radius: 18px; touch-action: manipulation; }
+input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; }
+.big { font-size: 22px; font-weight: 700; line-height: 1.2; white-space: nowrap; }
+.stats { display: flex; gap: 10px; }
+.stats div { flex: 1; background: var(--panel); border-radius: 14px; padding: 10px 12px; min-width: 0; }
+.score { font-size: 15px; color: var(--muted); }
+.shot { width: 100%; border-radius: 18px; display: block; }
+.say { border: 0; background: none; font-size: 22px; min-height: 40px; padding: 4px 8px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="t"><b>Oscar et tes os</b><span>Épisode prototype · v0.1</span></div>
+    <button class="say" id="bSay" aria-label="Lire à voix haute" title="Lire à voix haute">🔊</button>
+  </header>
+  <div class="dots" id="dots" aria-hidden="true"></div>
+
+  <main id="main">
+    <!-- 1. Accroche -->
+    <section data-step data-say="Ton pantalon est devenu trop court ! Sur la porte, ta marque a encore monté. Salut, moi c'est Oscar, ton squelette. Tu sais qui te fait grandir ? C'est nous, les os !">
+      <svg viewBox="0 0 360 260" role="img" aria-label="Oscar le squelette, à côté d'une toise sur une porte" style="width:100%;height:auto">
+        <rect x="40" y="10" width="110" height="240" rx="6" fill="#2b3550" stroke="#3d4a6b" stroke-width="3"/>
+        <circle cx="134" cy="132" r="5" fill="#c9a24b"/>
+        <g stroke="#aab4c8" stroke-width="2"><path d="M52 60h22M52 90h14M52 120h22M52 150h14M52 180h22"/></g>
+        <g fill="#ffcf5a"><rect x="52" y="104" width="40" height="5" rx="2"/><rect x="52" y="86" width="40" height="5" rx="2"/></g>
+        <text x="96" y="92" fill="#ffcf5a" font-size="12" font-family="Outfit, sans-serif">+ 4 cm !</text>
+        <g transform="translate(250 30)" fill="#f1e7d0" stroke="#f1e7d0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <ellipse cx="0" cy="30" rx="30" ry="32" stroke="#6f6248"/>
+          <rect x="-16" y="54" width="32" height="14" rx="5" stroke="#6f6248"/>
+          <ellipse cx="-11" cy="28" rx="8" ry="10" fill="#2a2a38" stroke="none"/><ellipse cx="11" cy="28" rx="8" ry="10" fill="#2a2a38" stroke="none"/>
+          <circle cx="-9" cy="25" r="2.5" fill="#fff" stroke="none"/><circle cx="13" cy="25" r="2.5" fill="#fff" stroke="none"/>
+          <path d="M-12 50 q12 8 24 0" fill="none" stroke="#6f6248"/>
+          <path d="M0 72 v80" fill="none" stroke-width="7"/>
+          <path d="M-26 84 q26 10 52 0 M-26 98 q26 10 52 0 M-24 112 q24 9 48 0" fill="none"/>
+          <path d="M-8 74 L-38 82 L-48 118 M8 74 L40 70 L62 30" fill="none" stroke-width="6"/>
+          <path d="M62 30 l-6 -12 M62 30 l2 -14 M62 30 l10 -8" fill="none"/>
+          <path d="M-22 150 q22 -12 44 0 l-6 14 h-32z" stroke="#6f6248"/>
+          <path d="M-12 162 L-16 230 M12 162 L16 230" fill="none" stroke-width="7"/>
+          <path d="M-16 230 h-16 M16 230 h16" fill="none" stroke-width="6"/>
+        </g>
+      </svg>
+      <h1>Ton pantalon est devenu trop court !</h1>
+      <p>Sur la porte, ta marque a encore monté. Quelqu'un te fait grandir en secret…</p>
+      <div class="bubble q"><b>« Salut, moi c'est Oscar, ton squelette. Tu sais qui te fait grandir ? C'est nous, les os ! »</b></div>
+    </section>
+
+    <!-- 2. Question -->
+    <section data-step data-say="Question d'Oscar : combien d'os y a-t-il dans le corps d'un adulte ?">
+      <h2>Combien d'os y a-t-il dans le corps d'un adulte ?</h2>
+      <div class="choices" id="quiz">
+        <button data-ok="0">26</button>
+        <button data-ok="1">206</button>
+        <button data-ok="0">1 000</button>
+      </div>
+      <p class="feedback" id="quizFb" aria-live="polite"></p>
+    </section>
+
+    <!-- 3. Réalité augmentée -->
+    <section data-step data-say="Filme quelqu'un de ta famille, de la tête aux hanches au moins. Tu vas voir son squelette bouger avec lui. Touche un os pour savoir son nom.">
+      <h2>Vois le squelette de quelqu'un</h2>
+      <p class="muted">Filme quelqu'un de face, de la tête aux hanches au moins. Touche un os pour savoir son nom.</p>
+      <div class="stage">
+        <canvas id="ar"></canvas>
+        <div class="over" id="arMsg">Touche « Ouvrir la caméra ».</div>
+      </div>
+      <div class="row">
+        <button class="main" id="bCam">Ouvrir la caméra</button>
+        <button class="small" id="bFlip" hidden>↺ Changer de caméra</button>
+        <button class="small" id="bShot" hidden>📸 Photo</button>
+      </div>
+      <div class="info" id="arInfo" hidden></div>
+    </section>
+
+    <!-- 4. Animation -->
+    <section data-step data-say="Regarde comment un os grandit.">
+      <h2>Comment un os grandit ?</h2>
+      <canvas class="draw" id="anim" width="720" height="760" aria-label="Animation : le fémur grandit grâce au cartilage de croissance"></canvas>
+      <p class="feedback" id="animTxt" aria-live="polite"></p>
+      <div class="row"><button class="small" id="bReplay">↻ Revoir</button></div>
+    </section>
+
+    <!-- 5. Schéma interactif -->
+    <section data-step data-say="Fais glisser le curseur pour voir ton squelette changer avec l'âge.">
+      <h2>Ton squelette change avec l'âge</h2>
+      <canvas class="draw" id="age" width="720" height="760" aria-label="Squelette selon l'âge"></canvas>
+      <input type="range" id="ageR" min="0" max="25" step="0.5" value="9" aria-label="Âge">
+      <div class="stats">
+        <div><span class="muted">Âge</span><div class="big" id="ageV"></div></div>
+        <div><span class="muted">Os</span><div class="big" id="bonesV"></div></div>
+        <div><span class="muted">Taille</span><div class="big" id="heightV"></div></div>
+      </div>
+      <p id="ageTxt"></p>
+      <p class="muted">En bleu : le cartilage de croissance. Nombres et tailles moyens, arrondis : chacun grandit à son rythme.</p>
+    </section>
+
+    <!-- 6. Défi -->
+    <section data-step data-say="Défi d'Oscar : touche le bon os.">
+      <h2>Le défi d'Oscar</h2>
+      <p id="gameQ" class="bubble q"></p>
+      <p class="feedback" id="gameFb" aria-live="polite"></p>
+      <canvas class="draw" id="game" width="600" height="1000" aria-label="Squelette à toucher"></canvas>
+      <p class="score" id="gameScore"></p>
+    </section>
+
+    <!-- 7. À toi d'expliquer -->
+    <section data-step data-say="Bravo ! À ton tour d'expliquer à quelqu'un comment tu grandis.">
+      <h1>Bravo ! À toi d'expliquer</h1>
+      <div class="bubble">
+        <p>Raconte à quelqu'un de ta famille :</p>
+        <ul style="margin:8px 0 0;padding-left:20px">
+          <li>un adulte a <b>206 os</b>, un bébé environ 300 : certains se soudent en grandissant ;</li>
+          <li>on grandit grâce au <b style="color:var(--plate)">cartilage de croissance</b>, au bout des os longs ;</li>
+          <li>le <b>fémur</b>, l'os de la cuisse, est le plus long du corps.</li>
+        </ul>
+      </div>
+      <img class="shot" id="shot" alt="Ta photo avec le squelette" hidden>
+      <div class="row">
+        <button class="main" id="bShare">Partager ma photo</button>
+        <button class="small" id="bAgain">Recommencer</button>
+      </div>
+      <p class="muted">Prochain épisode : pourquoi a-t-on des courbatures ? Les muscles entrent en scène.</p>
+    </section>
+  </main>
+
+  <footer>
+    <button id="bPrev">Retour</button>
+    <button class="main" id="bNext">Suivant</button>
+  </footer>
+</div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const css = getComputedStyle(document.documentElement);
+const C = { bone: css.getPropertyValue("--bone").trim(), muscle: css.getPropertyValue("--muscle").trim(), accent: css.getPropertyValue("--accent").trim(), plate: css.getPropertyValue("--plate").trim() };
+
+/* ---------- navigation ---------- */
+const steps = [...document.querySelectorAll("[data-step]")];
+let cur = 0;
+$("dots").innerHTML = steps.map(() => "<i></i>").join("");
+function go(i) {
+  cur = Math.max(0, Math.min(steps.length - 1, i));
+  steps.forEach((s, k) => (s.hidden = k !== cur));
+  [...$("dots").children].forEach((d, k) => d.classList.toggle("on", k <= cur));
+  $("bPrev").style.visibility = cur ? "visible" : "hidden";
+  $("bNext").textContent = cur === 0 ? "Je veux savoir !" : "Suivant";
+  $("bNext").hidden = cur === steps.length - 1;
+  $("main").scrollTop = 0;
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+  if (cur !== 2) stopCam();
+  if (cur === 3) playAnim();
+  if (cur === 4) drawAge();
+  if (cur === 5) newRound(true);
+  if (cur === 6) showShot();
+}
+$("bNext").onclick = () => go(cur + 1);
+$("bPrev").onclick = () => go(cur - 1);
+$("bAgain").onclick = () => go(0);
+
+/* ---------- lecture à voix haute (voix du téléphone, gratuite) ---------- */
+$("bSay").onclick = () => {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(steps[cur].dataset.say);
+  u.lang = "fr-FR"; u.rate = 0.95;
+  const v = speechSynthesis.getVoices().find((x) => x.lang?.startsWith("fr"));
+  if (v) u.voice = v;
+  speechSynthesis.speak(u);
+};
+
+/* ---------- 2. quiz ---------- */
+$("quiz").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  [...$("quiz").children].forEach((x) => x.classList.remove("good", "wrong"));
+  const ok = b.dataset.ok === "1";
+  b.classList.add(ok ? "good" : "wrong");
+  $("quizFb").textContent = ok
+    ? "Oui, 206 ! Et un bébé en a environ 300 : en grandissant, certains os se soudent entre eux."
+    : b.textContent === "26" ? "Plus que ça ! Rien que dans un pied, il y a déjà 26 os. Essaie encore."
+    : "Moins que ça ! Essaie encore.";
+});
+
+/* ---------- géométrie et dessin du squelette (repris du prototype de calage) ---------- */
+const V = {
+  add: (a, b) => ({ x: a.x + b.x, y: a.y + b.y }), sub: (a, b) => ({ x: a.x - b.x, y: a.y - b.y }),
+  mul: (a, k) => ({ x: a.x * k, y: a.y * k }), len: (a) => Math.hypot(a.x, a.y),
+  mid: (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }), lerp: (a, b, t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }),
+  norm: (a) => { const l = Math.hypot(a.x, a.y) || 1; return { x: a.x / l, y: a.y / l }; }, perp: (a) => ({ x: -a.y, y: a.x }),
+};
+const INFO = {
+  crane: ["Crâne", "Il protège le cerveau. Chez le bébé, ses os ne sont pas encore soudés : c'est la « fontanelle », la partie molle du dessus de la tête."],
+  clavicule: ["Clavicule", "Elle relie l'épaule au sternum. C'est l'un des os qui se cassent le plus souvent lors d'une chute."],
+  cotes: ["Côtes", "12 paires de côtes forment une cage qui protège le cœur et les poumons."],
+  sternum: ["Sternum", "Os plat au milieu de la poitrine, où s'attachent les côtes."],
+  colonne: ["Colonne vertébrale", "Une pile de vertèbres : 33 chez le bébé, environ 26 os chez l'adulte car celles du bas se soudent. Elle te tient droit."],
+  bassin: ["Bassin", "Il porte le poids du haut du corps. Chez l'enfant, il est fait de plusieurs os qui se soudent vers 15 à 25 ans."],
+  humerus: ["Humérus", "L'os du bras, de l'épaule jusqu'au coude. Il grandit surtout par son bout près de l'épaule."],
+  avantbras: ["Radius et ulna", "Les deux os de l'avant-bras. Ils se croisent quand tu tournes la paume vers le bas."],
+  main: ["Os de la main", "27 os environ dans chaque main : c'est ce qui permet des gestes si précis."],
+  femur: ["Fémur", "L'os de la cuisse : le plus long et le plus solide du corps. Il mesure environ un quart de ta taille."],
+  jambe: ["Tibia et fibula", "Les deux os de la jambe. Le tibia porte presque tout le poids du corps."],
+  pied: ["Os du pied", "26 os par pied, qui amortissent chaque pas."],
+};
+function ellipsePath(c, along, rx, ry) { const p = new Path2D(); p.ellipse(c.x, c.y, Math.max(rx, 1), Math.max(ry, 1), Math.atan2(along.y, along.x), 0, Math.PI * 2); return p; }
+function polyPath(pts) { const p = new Path2D(); pts.forEach((q, i) => (i ? p.lineTo(q.x, q.y) : p.moveTo(q.x, q.y))); p.closePath(); return p; }
+function bonePath(a, b, w) {
+  const dir = V.norm(V.sub(b, a)), n = V.perp(dir), p = new Path2D();
+  const s1 = V.add(a, V.mul(n, w * .5)), s2 = V.add(b, V.mul(n, w * .5)), s3 = V.sub(b, V.mul(n, w * .5)), s4 = V.sub(a, V.mul(n, w * .5));
+  p.moveTo(s1.x, s1.y); p.lineTo(s2.x, s2.y); p.lineTo(s3.x, s3.y); p.lineTo(s4.x, s4.y); p.closePath();
+  // les bouts arrondis tournent dans le même sens que le fût, sinon leurs recouvrements se « trouent » au remplissage
+  const ccw = (s2.x - s1.x) * (s3.y - s2.y) - (s2.y - s1.y) * (s3.x - s2.x) < 0;
+  for (const e of [a, b]) for (const k of [-.45, .45]) { const c = V.add(e, V.mul(n, w * k)); p.moveTo(c.x + w * .62, c.y); p.arc(c.x, c.y, w * .62, 0, Math.PI * 2, ccw); }
+  return p;
+}
+/* Dessine le squelette à partir des 33 points. opts : { veil, plates (cartilage de croissance), fontanelle, hi (os mis en valeur), plain (sans couleur) }.
+   Renvoie la liste des formes (pour le toucher), ou null si le corps n'est pas assez visible. */
+function drawSkeleton(ctx, L, opts = {}) {
+  const shapes = [], cw = ctx.canvas.width, ch = ctx.canvas.height;
+  if ((L[11].v ?? 1) > .35 && (L[12].v ?? 1) > .35 && !((L[23].v ?? 1) > .35 && (L[24].v ?? 1) > .35)) {
+    // hanches hors du cadre : estimées à partir des épaules
+    const a = L[11], b = L[12], sw = Math.hypot(a.x - b.x, a.y - b.y), mid = V.mid(a, b);
+    let dn = { x: -(a.y - b.y) / sw, y: (a.x - b.x) / sw };
+    const ref = (L[0].v ?? 1) > .35 ? V.sub(mid, L[0]) : { x: 0, y: 1 };
+    if (dn.x * ref.x + dn.y * ref.y < 0) dn = V.mul(dn, -1);
+    const hm = V.add(mid, V.mul(dn, sw * 1.3)), r = { x: (a.x - b.x) / sw, y: (a.y - b.y) / sw };
+    L = L.map((p) => ({ ...p }));
+    L[23] = { ...V.add(hm, V.mul(r, sw * .36)), v: 1 }; L[24] = { ...V.sub(hm, V.mul(r, sw * .36)), v: 1 };
+  }
+  const vis = (i) => (L[i].v ?? 1) > .35;
+  const inFrame = (i) => L[i].x > -.02 * cw && L[i].x < 1.02 * cw && L[i].y > -.02 * ch && L[i].y < 1.02 * ch;
+  const visL = (i) => (L[i].v ?? 1) > .6 && inFrame(i);
+  const P = (i) => L[i];
+  if (![11, 12, 23, 24].every(vis)) return null;
+  const s = V.len(V.sub(P(11), P(12))); if (s < 8) return null;
+  const Sm = V.mid(P(11), P(12)), Hm = V.mid(P(23), P(24)), d = V.sub(Hm, Sm), T = V.len(d), r = V.norm(V.sub(P(11), P(12)));
+  const at = (t, k = 0) => V.add(V.add(Sm, V.mul(d, t)), V.mul(r, k * s));
+  const sides = [{ sg: 1, sh: 11, el: 13, wr: 15, hi: 23, kn: 25, an: 27, ix: 19, pk: 17, ft: 31, heel: 29, name: "gauche" },
+                 { sg: -1, sh: 12, el: 14, wr: 16, hi: 24, kn: 26, an: 28, ix: 20, pk: 18, ft: 32, heel: 30, name: "droit" }];
+  if (opts.veil) { ctx.save(); ctx.fillStyle = "rgba(8,14,20,.3)"; ctx.fillRect(0, 0, cw, ch); ctx.restore(); }
+  const lw = Math.max(1, s * .007);
+  const bFill = (path, key, side) => {
+    ctx.save(); ctx.fillStyle = opts.hi && opts.hi === key ? C.accent : C.bone; ctx.globalAlpha = .93; ctx.fill(path);
+    ctx.globalAlpha = 1; ctx.strokeStyle = "#6f6248"; ctx.lineWidth = lw; ctx.stroke(path); ctx.restore();
+    shapes.push({ path, key, side, how: "fill" });
+  };
+  const bStroke = (path, w, key, side) => {
+    ctx.save(); ctx.lineCap = "round"; ctx.strokeStyle = "#6f6248"; ctx.lineWidth = w + Math.max(2, s * .012); ctx.stroke(path);
+    ctx.strokeStyle = opts.hi && opts.hi === key ? C.accent : C.bone; ctx.lineWidth = w; ctx.stroke(path); ctx.restore();
+    shapes.push({ path, key, side, how: "stroke", lw: Math.max(w, s * .06) });
+  };
+  // crâne
+  if (vis(0)) {
+    const ears = vis(7) && vis(8) ? V.mid(P(7), P(8)) : P(0), c = V.lerp(ears, P(0), .35);
+    const rad = Math.max(vis(7) && vis(8) ? V.len(V.sub(P(7), P(8))) * .85 : 0, s * .3), up = V.mul(V.norm(d), -1);
+    const skull = new Path2D(); skull.ellipse(c.x + up.x * rad * .15, c.y + up.y * rad * .15, rad * .86, rad, Math.atan2(r.y, r.x), 0, Math.PI * 2);
+    bFill(skull, "crane");
+    ctx.save(); ctx.fillStyle = "#3a3226"; ctx.globalAlpha = .85;
+    for (const g of [1, -1]) { const o = V.add(V.add(c, V.mul(r, g * rad * .33)), V.mul(up, rad * .05)); ctx.beginPath(); ctx.ellipse(o.x, o.y, rad * .2, rad * .16, Math.atan2(r.y, r.x), 0, Math.PI * 2); ctx.fill(); }
+    const ns = V.sub(c, V.mul(up, rad * .25)); ctx.beginPath(); ctx.ellipse(ns.x, ns.y, rad * .07, rad * .12, Math.atan2(r.y, r.x), 0, Math.PI * 2); ctx.fill();
+    if (opts.fontanelle) { const f = V.add(c, V.mul(up, rad * .82)); ctx.globalAlpha = .9; ctx.fillStyle = C.plate; ctx.beginPath(); ctx.ellipse(f.x, f.y, rad * .22, rad * .13, Math.atan2(r.y, r.x), 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+  }
+  // colonne
+  const spine = new Path2D();
+  for (let k = 0; k < 17; k++) { const t = -.14 + (k / 16) * 1.06, c = at(t), w = s * (.06 + .03 * (k / 17)); spine.moveTo(c.x + w, c.y); spine.ellipse(c.x, c.y, w, T * .024, Math.atan2(r.y, r.x), 0, Math.PI * 2); }
+  bFill(spine, "colonne");
+  // côtes
+  for (let k = 0; k < 10; k++) {
+    const t = .08 + k * .052, w = s * .5 * (.6 + .2 * Math.sin(Math.PI * (k + 1.5) / 12));
+    for (const g of [1, -1]) {
+      const a = at(t, .03 * g), b = V.add(at(t + .07), V.mul(r, g * w)), ctrl = V.add(at(t - .04), V.mul(r, g * w * .95));
+      const p = new Path2D(); p.moveTo(a.x, a.y); p.quadraticCurveTo(ctrl.x, ctrl.y, b.x, b.y); bStroke(p, Math.max(2, s * .028), "cotes");
+    }
+  }
+  bFill(polyPath([at(.05, -.03), at(.05, .03), at(.4, .022), at(.44, 0), at(.4, -.022)]), "sternum");
+  for (const q of sides) {
+    const p = new Path2D(), a = at(.03, .03 * q.sg), b = V.add(P(q.sh), V.mul(d, -.02)), ctrl = V.add(V.lerp(a, b, .5), V.mul(d, -.05));
+    p.moveTo(a.x, a.y); p.quadraticCurveTo(ctrl.x, ctrl.y, b.x, b.y); bStroke(p, Math.max(2, s * .04), "clavicule", q.name);
+  }
+  // bassin
+  const pel = new Path2D();
+  for (const q of sides) { const c = V.add(V.lerp(Hm, P(q.hi), .55), V.mul(d, -.06)); pel.moveTo(c.x + s * .2, c.y); pel.ellipse(c.x, c.y, s * .2, T * .13, Math.atan2(r.y, r.x) + q.sg * .35, 0, Math.PI * 2); }
+  const sac = V.add(Hm, V.mul(d, .02)); pel.moveTo(sac.x + s * .09, sac.y); pel.ellipse(sac.x, sac.y, s * .09, T * .1, Math.atan2(r.y, r.x), 0, Math.PI * 2);
+  bFill(pel, "bassin");
+  // membres, et cartilages de croissance (bandes bleues près des articulations)
+  const plate = (a, b, t, w) => {
+    if (!opts.plates) return;
+    const c = V.lerp(a, b, t), dir = V.sub(b, a);
+    ctx.save(); ctx.fillStyle = C.plate; ctx.globalAlpha = .95 * opts.plates; ctx.fill(ellipsePath(c, V.perp(dir), w * .62, Math.max(2, w * .16))); ctx.restore();
+  };
+  for (const q of sides) {
+    if (visL(q.el)) {
+      bFill(bonePath(P(q.sh), P(q.el), s * .065), "humerus", q.name);
+      plate(P(q.sh), P(q.el), .1, s * .065);
+      if (visL(q.wr)) {
+        const n2 = V.mul(V.perp(V.norm(V.sub(P(q.wr), P(q.el)))), s * .028);
+        bFill(bonePath(V.add(P(q.el), n2), V.add(P(q.wr), n2), s * .032), "avantbras", q.name);
+        bFill(bonePath(V.sub(P(q.el), n2), V.sub(P(q.wr), n2), s * .032), "avantbras", q.name);
+        const hand = new Path2D();
+        for (const f of [q.ix, q.pk]) if (vis(f)) { hand.moveTo(P(q.wr).x, P(q.wr).y); hand.lineTo(P(f).x, P(f).y); }
+        bStroke(hand, Math.max(2, s * .025), "main", q.name);
+      }
+    }
+    if (visL(q.kn)) {
+      bFill(bonePath(P(q.hi), P(q.kn), s * .085), "femur", q.name);
+      plate(P(q.hi), P(q.kn), .88, s * .085);
+      if (visL(q.an)) {
+        const n2 = V.mul(V.perp(V.norm(V.sub(P(q.an), P(q.kn)))), s * .03 * q.sg);
+        bFill(bonePath(V.sub(P(q.kn), n2), V.sub(P(q.an), n2), s * .06), "jambe", q.name);
+        bFill(bonePath(V.add(P(q.kn), V.mul(n2, 1.6)), V.add(P(q.an), V.mul(n2, 1.4)), s * .028), "jambe", q.name);
+        plate(P(q.kn), P(q.an), .1, s * .07);
+        const foot = new Path2D();
+        for (const f of [q.ft, q.heel]) if (vis(f)) { foot.moveTo(P(q.an).x, P(q.an).y); foot.lineTo(P(f).x, P(f).y); }
+        bStroke(foot, Math.max(2, s * .03), "pied", q.name);
+      }
+    }
+  }
+  return shapes;
+}
+function hitTest(ctx, shapes, x, y) {
+  for (const sh of [...shapes].reverse()) {
+    let inside;
+    if (sh.how === "stroke") { ctx.save(); ctx.lineWidth = sh.lw * 1.6; inside = ctx.isPointInStroke(sh.path, x, y); ctx.restore(); }
+    else inside = ctx.isPointInPath(sh.path, x, y);
+    if (inside) return sh;
+  }
+  return null;
+}
+function boneLabel(key, side) { const [t, d] = INFO[key]; return { title: side && !["crane", "colonne", "cotes", "sternum", "bassin"].includes(key) ? `${t} ${side}` : t, text: d }; }
+
+/* Squelette de référence, debout, de face (600 × 1000) : pour le schéma et le défi */
+function refPose(k = 1, ox = 300, oy = 1000) {
+  const pts = { 0: [300, 118], 7: [338, 112], 8: [262, 112], 11: [388, 232], 12: [212, 232], 13: [418, 382], 14: [182, 382], 15: [432, 520], 16: [168, 520],
+    17: [448, 566], 18: [152, 566], 19: [438, 578], 20: [162, 578], 23: [352, 524], 24: [248, 524], 25: [358, 722], 26: [242, 722],
+    27: [360, 902], 28: [240, 902], 29: [358, 928], 30: [242, 928], 31: [384, 948], 32: [216, 948] };
+  return Array.from({ length: 33 }, (_, i) => {
+    const p = pts[i] || pts[0];
+    return { x: ox + (p[0] - 300) * k, y: oy - (1000 - p[1]) * k, v: 1 };
+  });
+}
+
+/* ---------- 3. réalité augmentée : le corps entier ---------- */
+const ar = $("ar"), actx = ar.getContext("2d");
+let pose = null, stream = null, video = null, raf = 0, lastT = -1, arShapes = [], facing = "environment", mirror = false;
+let smoothL = null, stable = 0, selected = null;
+const work = document.createElement("canvas"), wctx = work.getContext("2d");
+async function initPose() {
+  if (pose) return pose;
+  const { PoseLandmarker } = await import("./vision_bundle.mjs");
+  const base = new URL(".", location.href).href;
+  const fs = { wasmLoaderPath: base + "vision_wasm_internal.js", wasmBinaryPath: base + "vision_wasm_internal.wasm" };
+  const opt = (dlg) => ({ baseOptions: { modelAssetPath: base + "pose_landmarker_lite.task", delegate: dlg }, runningMode: "VIDEO", numPoses: 1,
+    minPoseDetectionConfidence: .3, minPosePresenceConfidence: .3, minTrackingConfidence: .3 });
+  try { pose = await PoseLandmarker.createFromOptions(fs, opt("GPU")); }
+  catch (e) { pose = await PoseLandmarker.createFromOptions(fs, opt("CPU")); }
+  return pose;
+}
+async function startCam() {
+  msg("Chargement…");
+  try {
+    await initPose();
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    const set = stream.getVideoTracks()[0]?.getSettings?.() || {};
+    mirror = (set.facingMode || facing) === "user";
+    video = document.createElement("video"); video.muted = true; video.playsInline = true; video.srcObject = stream;
+    await video.play();
+    smoothL = null; stable = 0; lastT = -1;
+    $("bCam").hidden = true; $("bFlip").hidden = false; $("bShot").hidden = false;
+    msg("Cherche quelqu'un à filmer…");
+    cancelAnimationFrame(raf); loop();
+  } catch (e) {
+    msg("La caméra n'a pas pu s'ouvrir. Autorise la caméra pour ce site, puis réessaie.");
+  }
+}
+$("bCam").onclick = startCam;
+$("bFlip").onclick = () => { facing = facing === "environment" ? "user" : "environment"; startCam(); };
+function stopCam() {
+  cancelAnimationFrame(raf);
+  if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
+  $("bCam").hidden = false; $("bFlip").hidden = true; $("bShot").hidden = true;
+}
+function msg(t) { $("arMsg").textContent = t; $("arMsg").hidden = !t; }
+/* Filtre des fausses détections (une main, un visage très proche) : on attend une personne debout, de face */
+function implausible(L, cw) {
+  const v = (i) => (L[i].v ?? 0) > .5;
+  if (!v(11) || !v(12)) return "Recule un peu : on doit voir les deux épaules.";
+  const sw = Math.hypot(L[11].x - L[12].x, L[11].y - L[12].y);
+  if (sw < .08 * cw) return "Approche-toi un peu.";
+  if (Math.abs(Math.atan2(L[11].y - L[12].y, Math.abs(L[11].x - L[12].x))) * 180 / Math.PI > 35) return "Tiens le téléphone droit.";
+  const sm = V.mid(L[11], L[12]);
+  if (!v(0) || L[0].y > sm.y - .15 * sw) return "Filme la personne de face, tête comprise.";
+  return "";
+}
+function loop() {
+  raf = requestAnimationFrame(loop);
+  if (!video || video.readyState < 2 || video.currentTime === lastT) return;
+  lastT = video.currentTime;
+  const W = video.videoWidth, H = video.videoHeight;
+  if (ar.width !== W || ar.height !== H) { ar.width = W; ar.height = H; }
+  if (mirror) { actx.save(); actx.translate(W, 0); actx.scale(-1, 1); actx.drawImage(video, 0, 0, W, H); actx.restore(); }
+  else actx.drawImage(video, 0, 0, W, H);
+  const k = Math.min(1, 960 / Math.max(W, H)); work.width = Math.round(W * k); work.height = Math.round(H * k);
+  wctx.drawImage(video, 0, 0, work.width, work.height);
+  const res = pose.detectForVideo(work, performance.now());
+  const lm = res.landmarks && res.landmarks[0];
+  arShapes = [];
+  if (!lm) { smoothL = null; stable = 0; msg("Cherche quelqu'un à filmer…"); return; }
+  const raw = lm.map((p) => ({ x: (mirror ? 1 - p.x : p.x) * W, y: p.y * H, v: p.visibility }));
+  const why = implausible(raw, W);
+  stable = why ? 0 : stable + 1;
+  // lissage adaptatif : fort à l'arrêt, faible quand ça bouge
+  if (!smoothL) smoothL = raw.map((p) => ({ ...p }));
+  else { const sh = Math.hypot(raw[11].x - raw[12].x, raw[11].y - raw[12].y) || 100;
+    smoothL = raw.map((p, i) => { const q = smoothL[i], a = Math.min(1, .35 + Math.hypot(p.x - q.x, p.y - q.y) / (.08 * sh)); return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a, v: p.v }; }); }
+  if (why || stable < 6) { msg(why || "Ne bouge plus… 🙂"); return; }
+  msg("");
+  arShapes = drawSkeleton(actx, smoothL, { veil: true, hi: selected?.key }) || [];
+}
+ar.addEventListener("click", (e) => {
+  const rc = ar.getBoundingClientRect(), k = Math.min(rc.width / ar.width, rc.height / ar.height);
+  const x = (e.clientX - rc.left - (rc.width - ar.width * k) / 2) / k, y = (e.clientY - rc.top - (rc.height - ar.height * k) / 2) / k;
+  const hit = hitTest(actx, arShapes, x, y);
+  selected = hit;
+  if (!hit) { $("arInfo").hidden = true; return; }
+  const { title, text } = boneLabel(hit.key, hit.side);
+  $("arInfo").innerHTML = `<b>${title}</b>${text}`; $("arInfo").hidden = false;
+});
+let shotBlob = null, shotUrl = null;
+$("bShot").onclick = () => ar.toBlob((b) => {
+  shotBlob = b; if (shotUrl) URL.revokeObjectURL(shotUrl); shotUrl = URL.createObjectURL(b);
+  msg("Photo gardée pour la fin de l'épisode 📸"); setTimeout(() => msg(""), 1500);
+}, "image/jpeg", .9);
+
+/* ---------- 4. animation : le fémur grandit ---------- */
+const an = $("anim"), nctx = an.getContext("2d");
+let animT0 = 0, animRaf = 0;
+const CAPS = [
+  [0, "1. Voici ton fémur, l'os de la cuisse. Près de ses bouts, une bande bleue : le cartilage de croissance."],
+  [3.5, "2. Ce cartilage fabrique sans arrêt du nouvel os. Le fémur s'allonge…"],
+  [7.5, "3. … et toi, tu grandis ! Les os des jambes grandissent le plus."],
+  [11, "4. Vers 15 à 18 ans, le cartilage se transforme en os : il disparaît, et on arrête de grandir."],
+];
+function playAnim() { cancelAnimationFrame(animRaf); animT0 = performance.now(); animRaf = requestAnimationFrame(frame); }
+$("bReplay").onclick = playAnim;
+function frame(now) {
+  const t = Math.max(0, (now - animT0) / 1000), W = an.width, H = an.height, c = nctx;
+  $("animTxt").textContent = CAPS.filter((x) => t >= x[0]).pop()[1];
+  c.clearRect(0, 0, W, H);
+  const grow = Math.min(1, Math.max(0, (t - 3.5) / 6));          // 0 → 1 pendant la croissance
+  const closing = Math.min(1, Math.max(0, (t - 11) / 2.5));      // le cartilage disparaît
+  // à gauche : le fémur ; à droite : la silhouette qui grandit
+  const fx = W * .32, top = H * .1, len = H * (.46 + .3 * grow), w = W * .09;
+  const a = { x: fx, y: top }, b = { x: fx, y: top + len };
+  c.save(); c.fillStyle = C.bone; c.strokeStyle = "#6f6248"; c.lineWidth = 3;
+  const p = bonePath(a, b, w); c.fill(p); c.stroke(p); c.restore();
+  if (closing < 1) {
+    c.save(); c.globalAlpha = 1 - closing; c.fillStyle = C.plate;
+    for (const y of [top + w * .9, top + len - w * .9]) { c.beginPath(); c.ellipse(fx, y, w * .62, w * .16, 0, 0, Math.PI * 2); c.fill(); }
+    // nouvelles cellules qui « poussent » depuis le cartilage du bas
+    if (t > 3.5 && t < 11) { c.fillStyle = "#ffffff"; for (let i = 0; i < 5; i++) { const ph = ((t * 1.3 + i * .2) % 1); c.globalAlpha = (1 - ph) * .9; c.beginPath(); c.arc(fx - w * .3 + i * w * .15, top + len - w * .9 - ph * 40, 5, 0, Math.PI * 2); c.fill(); } }
+    c.restore();
+  }
+  c.fillStyle = "#e8eaff"; c.font = "500 26px Outfit, sans-serif"; c.textAlign = "left";
+  c.fillText("Fémur", fx + w * .9, top + len * .5);
+  if (closing < 1) { c.globalAlpha = 1 - closing; c.fillStyle = C.plate; c.fillText("Cartilage de", fx + w * .9, top + len - w * .9 - 6); c.fillText("croissance", fx + w * .9, top + len - w * .9 + 24); c.globalAlpha = 1; }
+  // silhouette
+  const k = .55 + .4 * grow, L = refPose(k * .62, W * .74, H * .96);
+  drawSkeleton(c, L, { plates: 1 - closing });
+  c.strokeStyle = "rgba(200,215,240,.35)"; c.setLineDash([8, 8]); c.lineWidth = 2;
+  const headY = L[0].y - 60 * k; c.beginPath(); c.moveTo(W * .58, headY); c.lineTo(W * .92, headY); c.stroke(); c.setLineDash([]);
+  if (t < 14 && cur === 3) animRaf = requestAnimationFrame(frame);
+}
+
+/* ---------- 5. schéma selon l'âge ---------- */
+const ag = $("age"), gctx = ag.getContext("2d");
+// tailles moyennes approximatives (filles et garçons confondus), en cm
+const HEIGHTS = [[0, 50], [1, 75], [2, 87], [4, 102], [6, 116], [8, 128], [10, 139], [12, 151], [14, 162], [16, 168], [18, 171], [25, 172]];
+const interp = (tab, a) => { for (let i = 1; i < tab.length; i++) if (a <= tab[i][0]) { const [x0, y0] = tab[i - 1], [x1, y1] = tab[i]; return y0 + (y1 - y0) * (a - x0) / (x1 - x0); } return tab[tab.length - 1][1]; };
+// nombre d'os approximatif : environ 300 à la naissance, 206 à l'âge adulte (les soudures finissent vers 25 ans)
+const BONES = [[0, 300], [2, 280], [6, 270], [12, 250], [16, 225], [20, 210], [25, 206]];
+const MILESTONES = [
+  [0, "Le bébé a environ 300 os. Sur le dessus du crâne, une partie molle : la fontanelle (en bleu)."],
+  [1.5, "Vers 18 mois à 2 ans, les os du crâne se rejoignent : la fontanelle se ferme."],
+  [3, "L'enfant grandit d'environ 6 cm par an, grâce aux cartilages de croissance (en bleu)."],
+  [10, "À la puberté (vers 10 à 14 ans), c'est le pic de croissance : jusqu'à 8 à 10 cm par an !"],
+  [15, "Vers 15 à 18 ans, les cartilages de croissance se transforment en os : on arrête de grandir."],
+  [20, "Certains os continuent de se souder jusqu'à 25 ans environ. Résultat : 206 os."],
+];
+function drawAge() {
+  const a = +$("ageR").value, h = interp(HEIGHTS, a), W = ag.width, H = ag.height;
+  gctx.clearRect(0, 0, W, H);
+  // toise
+  gctx.strokeStyle = "rgba(200,215,240,.3)"; gctx.fillStyle = "#aab4c8"; gctx.font = "500 22px Outfit, sans-serif"; gctx.textAlign = "right";
+  for (let cm = 0; cm <= 180; cm += 20) { const y = H * .97 - cm / 180 * H * .92; gctx.beginPath(); gctx.moveTo(W * .18, y); gctx.lineTo(W * .9, y); gctx.stroke(); gctx.fillText(cm + " cm", W * .16, y + 7); }
+  const plates = a < 15 ? 1 : a < 18 ? 1 - (a - 15) / 3 : 0;
+  // le squelette de référence fait 172 cm à l'échelle de la toise ; chez le petit, la tête est proportionnellement plus grande
+  const k = (h / 172) * (H * .92 * 172 / 180) / 860;
+  const L = refPose(k, W * .55, H * .97 + 52 * k);
+  const head = 1 + .5 * Math.max(0, 1 - a / 12);              // tête plus grosse chez l'enfant
+  L[7] = { ...L[7], x: L[0].x + (L[7].x - L[0].x) * head }; L[8] = { ...L[8], x: L[0].x + (L[8].x - L[0].x) * head };
+  drawSkeleton(gctx, L, { plates, fontanelle: a < 1.5 });
+  $("ageV").textContent = a < 1 ? `${Math.round(a * 12)} mois` : `${String(a).replace(".", ",")} ans`;
+  $("bonesV").textContent = "≈ " + Math.round(interp(BONES, a) / 5) * 5;
+  if (a >= 25) $("bonesV").textContent = "206";
+  $("heightV").textContent = `≈ ${Math.round(h)} cm`;
+  $("ageTxt").textContent = MILESTONES.filter((m) => a >= m[0]).pop()[1];
+}
+$("ageR").addEventListener("input", drawAge);
+
+/* ---------- 6. défi : touche le bon os ---------- */
+const gm = $("game"), mctx = gm.getContext("2d");
+const ROUNDS = ["femur", "crane", "humerus", "bassin", "cotes"];
+const ASK = { femur: "le fémur, l'os le plus long", crane: "le crâne", humerus: "un humérus, l'os du bras", bassin: "le bassin", cotes: "une côte" };
+let gShapes = [], round = 0, score = 0, tries = 0, gLock = false;
+function drawGame(hi) { mctx.clearRect(0, 0, gm.width, gm.height); gShapes = drawSkeleton(mctx, refPose(), { hi }) || []; }
+function newRound(reset) {
+  if (reset) { round = 0; score = 0; }
+  gLock = false; tries = 0;
+  if (round >= ROUNDS.length) { $("gameQ").textContent = `Défi terminé : ${score} sur ${ROUNDS.length} du premier coup ! 🏅`; $("gameFb").textContent = ""; $("gameScore").textContent = ""; drawGame(); return; }
+  $("gameQ").textContent = `Oscar cherche ${ASK[ROUNDS[round]]}. Touche-le !`;
+  $("gameFb").textContent = ""; $("gameScore").textContent = `Manche ${round + 1} sur ${ROUNDS.length} · ${score} point${score > 1 ? "s" : ""}`;
+  drawGame();
+}
+gm.addEventListener("click", (e) => {
+  if (gLock || round >= ROUNDS.length) return;
+  const rc = gm.getBoundingClientRect(), k = Math.min(rc.width / gm.width, rc.height / gm.height);
+  const x = (e.clientX - rc.left - (rc.width - gm.width * k) / 2) / k, y = (e.clientY - rc.top - (rc.height - gm.height * k) / 2) / k;
+  const hit = hitTest(mctx, gShapes, x, y); if (!hit) return;
+  tries++;
+  const want = ROUNDS[round];
+  if (hit.key === want) {
+    if (tries === 1) score++;
+    gLock = true; drawGame(want);
+    $("gameScore").textContent = `Manche ${round + 1} sur ${ROUNDS.length} · ${score} point${score > 1 ? "s" : ""}`;
+    $("gameFb").textContent = "Bravo ! " + INFO[want][1];
+    round++; setTimeout(() => newRound(false), 3200);
+  } else $("gameFb").textContent = `Raté, ça, c'est : ${INFO[hit.key][0].toLowerCase()}. Essaie encore !`;
+});
+
+/* ---------- 7. partage ---------- */
+function showShot() {
+  const img = $("shot");
+  img.hidden = !shotUrl; $("bShare").hidden = !shotUrl;
+  if (shotUrl) img.src = shotUrl;
+}
+$("bShare").onclick = async () => {
+  if (!shotBlob) return;
+  const file = new File([shotBlob], "mon-squelette.jpg", { type: "image/jpeg" });
+  if (navigator.canShare?.({ files: [file] })) { try { await navigator.share({ files: [file], text: "Regarde mon squelette ! Tu sais combien on a d'os ?" }); } catch (_) {} return; }
+  const a = document.createElement("a"); a.href = shotUrl; a.download = "mon-squelette.jpg"; a.click();
+};
+
+go(0);
+</script>
+</body>
+</html>

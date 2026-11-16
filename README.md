@@ -18,3 +18,16 @@ Ouvrir la page publiée par GitHub Pages dans Chrome sur Android, puis toucher �
 - Détection de la main : [MediaPipe Hand Landmarker](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker), modèle `hand_landmarker`, licence Apache 2.0. Sert à écarter une main prise pour un corps.
 - Anatomie : formes 2D simplifiées calculées à partir des 33 points du corps.
 - Photo d'exemple : jeu de test de MediaPipe.
+
+## Épisode prototype « Oscar et tes os » (`squelette.html`)
+
+Premier épisode pour les entretiens avec des familles. Il suit le format « épisode » :
+- l'histoire : le pantalon trop court et Oscar le squelette ;
+- un quiz ;
+- le squelette en réalité augmentée sur une personne filmée ;
+- l'animation du cartilage de croissance ;
+- un schéma selon l'âge ;
+- le défi « touche le bon os » ;
+- le partage d'une photo.
+
+La lecture à voix haute utilise la voix du téléphone.
