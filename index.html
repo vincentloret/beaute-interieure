@@ -54,7 +54,8 @@ body {
 .state[data-s="err"] .dot { background: var(--muscle); }
 
 .stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
-#view { display: block; touch-action: manipulation; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+#view, #view3d { display: block; touch-action: manipulation; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+#view3d { pointer-events: none; }
 .msg {
   position: absolute; inset: auto 16px 16px 16px; margin: auto; max-width: 420px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
@@ -115,12 +116,13 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.9</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.10</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
   <main class="stage" id="stage">
     <canvas id="view" aria-label="Image filmée avec l'anatomie en surimpression"></canvas>
+    <canvas id="view3d" aria-hidden="true" hidden></canvas>
     <div class="card" id="card" hidden>
       <div class="kind"><i id="cardSw"></i><span id="cardKind"></span></div>
       <h2 id="cardTitle"></h2>
@@ -143,6 +145,7 @@ button { line-height: 1.2; }
       </div>
       <button id="tNames" aria-pressed="false">Noms</button>
       <button id="tPoints" aria-pressed="false">Points</button>
+      <button id="t3d" aria-pressed="true" hidden>3D</button>
       <button id="tPause" hidden>Pause</button>
     </div>
     <div class="row">
@@ -315,10 +318,12 @@ function bonePath(a, b, w) {
   const s1 = V.add(a, V.mul(n, w * 0.5)), s2 = V.add(b, V.mul(n, w * 0.5));
   const s3 = V.sub(b, V.mul(n, w * 0.5)), s4 = V.sub(a, V.mul(n, w * 0.5));
   p.moveTo(s1.x, s1.y); p.lineTo(s2.x, s2.y); p.lineTo(s3.x, s3.y); p.lineTo(s4.x, s4.y); p.closePath();
+  // les bouts tournent dans le même sens que le fût, sinon les recouvrements se « trouent » au remplissage
+  const ccw = (s2.x - s1.x) * (s3.y - s2.y) - (s2.y - s1.y) * (s3.x - s2.x) < 0;
   for (const e of [a, b]) {
     for (const k of [-0.45, 0.45]) {
       const c = V.add(e, V.mul(n, w * k));
-      p.moveTo(c.x + w * 0.62, c.y); p.arc(c.x, c.y, w * 0.62, 0, Math.PI * 2);
+      p.moveTo(c.x + w * 0.62, c.y); p.arc(c.x, c.y, w * 0.62, 0, Math.PI * 2, ccw);
     }
   }
   return p;
@@ -573,7 +578,7 @@ function drawHand(H) {
       mF(ellipsePath(c, axis, s * 0.27, s * 0.05), "interosseux");
     }
   }
-  if (!showB) return;
+  if (!showB || (S.use3d && R3)) return;
   const bF = (p, key) => fill(p, C.bone, "#6f6248", 0.92, "bones", key);
   // radius et ulna (extrémités, côté poignet)
   for (const [g, w] of [[0.28, 0.13], [-0.28, 0.1]]) {
@@ -609,6 +614,106 @@ function drawHand(H) {
     }
   }
   bF(phal, "phalanges");
+}
+
+/* ---------- mode main en 3D (three.js) ----------
+   MediaPipe donne aussi la profondeur (z) de chaque point : les os sont des volumes éclairés,
+   cachés les uns par les autres comme en vrai. Caméra orthographique calée sur l'image. */
+let THREE = null, R3 = null;
+S.use3d = true;
+async function init3D() {
+  if (R3 !== null) return R3;
+  R3 = undefined;
+  try {
+    THREE = await import("./three.module.min.js");
+    const renderer = new THREE.WebGLRenderer({ canvas: $("view3d"), alpha: true, antialias: true, preserveDrawingBuffer: true });
+    renderer.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -10000, 10000);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x5a4a3a, 1.4));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.4); sun.position.set(-0.4, 0.8, 1); scene.add(sun);
+    R3 = {
+      renderer, scene, camera, pool: [], used: 0, w: 0, h: 0, Y: new THREE.Vector3(0, 1, 0),
+      mat: new THREE.MeshStandardMaterial({ color: 0xf1e7d0, roughness: 0.55, metalness: 0 }),
+      hi: new THREE.MeshStandardMaterial({ color: 0x58c4b8, roughness: 0.5, metalness: 0 }),
+      cyl: new THREE.CylinderGeometry(1, 1, 1, 16, 1), sph: new THREE.SphereGeometry(1, 18, 14),
+    };
+    if (S.target === "hand") $("view3d").hidden = false;
+  } catch (e) { R3 = null; S.use3d = false; S.err3d = e && e.message; $("t3d").hidden = true; }
+  return R3;
+}
+function mesh3(geo, key) {
+  let m = R3.pool[R3.used];
+  if (!m) { m = new THREE.Mesh(geo, R3.mat); R3.pool.push(m); R3.scene.add(m); }
+  m.geometry = geo; m.visible = true; m.userData.key = key;
+  m.material = S.selected && S.selected.key === key ? R3.hi : R3.mat;
+  R3.used++;
+  return m;
+}
+function bone3(a, b, r, key) {
+  // os de la main : fût cylindrique et deux têtes arrondies un peu plus larges
+  const d = new THREE.Vector3().subVectors(b, a), L = d.length();
+  if (L < 1e-3) return;
+  const m = mesh3(R3.cyl, key);
+  m.position.copy(a).addScaledVector(d, 0.5); m.scale.set(r * 0.8, L, r * 0.8);
+  m.quaternion.setFromUnitVectors(R3.Y, d.clone().normalize());
+  for (const e of [a, b]) { const q = mesh3(R3.sph, key); q.position.copy(e); q.scale.set(r * 0.95, r * 0.95, r * 0.95); q.quaternion.identity(); }
+}
+function buildHand3D(H) {
+  const s = H[9].distanceTo(H[0]);
+  if (s < 10) return;
+  const axis = new THREE.Vector3().subVectors(H[9], H[0]).normalize();
+  const across0 = new THREE.Vector3().subVectors(H[5], H[17]).normalize();
+  const normal = new THREE.Vector3().crossVectors(across0, axis).normalize();
+  const across = new THREE.Vector3().crossVectors(axis, normal).normalize();
+  const wW = H[5].distanceTo(H[17]) * 0.8;
+  const P = (v) => v.clone();
+  const lerp = (a, b, t) => a.clone().lerp(b, t);
+  // radius et ulna
+  for (const [g, r] of [[0.28, 0.065], [-0.28, 0.05]]) {
+    const o = across.clone().multiplyScalar(g * wW);
+    bone3(P(H[0]).addScaledVector(axis, -s * 0.75).add(o), P(H[0]).addScaledVector(axis, -s * 0.1).add(o), s * r, "avantbras");
+  }
+  // carpe : deux rangées de 4 petits os, aplatis dans le plan de la paume
+  const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, axis, normal));
+  for (const [t, wr] of [[0.04, 0.85], [0.17, 1]]) {
+    const row = wW * wr;
+    for (let k = 0; k < 4; k++) {
+      const c = P(H[0]).addScaledVector(axis, t * s).addScaledVector(across, (k - 1.5) * row / 4);
+      const m = mesh3(R3.sph, "carpe"); m.position.copy(c); m.scale.set(row / 9, s * 0.065, s * 0.05); m.quaternion.copy(q);
+    }
+  }
+  // métacarpiens
+  const base = (m) => lerp(H[0], H[m], 0.3);
+  for (const [m, r] of [[5, 0.085], [9, 0.085], [13, 0.078], [17, 0.072]]) bone3(lerp(base(m), H[m], 0.05), lerp(base(m), H[m], 0.92), s * r, "metacarpe");
+  bone3(lerp(lerp(H[0], H[1], 0.7), H[2], 0), lerp(lerp(H[0], H[1], 0.7), H[2], 0.9), s * 0.09, "metacarpe");
+  // phalanges
+  for (const f of [[5, 6, 7, 8], [9, 10, 11, 12], [13, 14, 15, 16], [17, 18, 19, 20], [2, 3, 4]]) {
+    const rs = f.length === 3 ? [0.085, 0.072] : [0.08, 0.066, 0.056];
+    for (let k = 0; k < f.length - 1; k++) {
+      const last = k === f.length - 2;
+      bone3(lerp(H[f[k]], H[f[k + 1]], 0.12), lerp(H[f[k]], H[f[k + 1]], last ? 0.82 : 0.88), s * rs[k], "phalanges");
+    }
+  }
+}
+function render3D(hands, w, h) {
+  if (!R3) return;
+  if (R3.w !== w || R3.h !== h) {
+    R3.renderer.setPixelRatio(1); R3.renderer.setSize(w, h, false);
+    Object.assign(R3.camera, { left: 0, right: w, top: 0, bottom: -h }); R3.camera.updateProjectionMatrix();
+    R3.w = w; R3.h = h;
+  }
+  R3.used = 0;
+  if (hands && S.use3d && S.layer !== "muscles") for (const H of hands) buildHand3D(H.map((p) => new THREE.Vector3(p.x, -p.y, -(p.z || 0))));
+  for (let i = R3.used; i < R3.pool.length; i++) R3.pool[i].visible = false;
+  R3.renderer.render(R3.scene, R3.camera);
+}
+function pick3D(x, y) {
+  if (!R3 || !S.use3d || S.target !== "hand" || !R3.used) return null;
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(x / R3.w * 2 - 1, -(y / R3.h * 2 - 1)), R3.camera);
+  const hit = ray.intersectObjects(R3.pool.filter((m) => m.visible), false)[0];
+  return hit ? hit.object.userData.key : null;
 }
 
 function drawNames(L, s) {
@@ -655,6 +760,7 @@ function fitCanvas(w, h) {
   // vidéo et direct : l'image remplit l'écran (bords rognés), photo : image entière
   const k = S.source === "image" ? Math.min(sw / w, shh / h) : Math.max(sw / w, shh / h);
   canvas.style.width = `${Math.floor(w * k)}px`; canvas.style.height = `${Math.floor(h * k)}px`;
+  const v3 = $("view3d"); v3.style.width = canvas.style.width; v3.style.height = canvas.style.height;
 }
 function rawSize(m) { return m instanceof HTMLVideoElement ? [m.videoWidth, m.videoHeight] : [m.naturalWidth, m.naturalHeight]; }
 // affichage plafonné à 1600 px : les photos de téléphone (12 Mpx et plus) saturent la mémoire graphique
@@ -751,7 +857,7 @@ function smoothHands(list) {
     const prev = S.hands[j], sz = V.len(V.sub(H[9], H[0])) || 50;
     return H.map((p, i) => {
       const q = prev[i], a = Math.min(1, 0.4 + Math.hypot(p.x - q.x, p.y - q.y) / (0.15 * sz));
-      return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a };
+      return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a, z: q.z + (p.z - q.z) * a };
     });
   });
 }
@@ -766,9 +872,12 @@ function analyseHand(m, w, h, ts) {
   S.handMs = performance.now() - t0;
   if (S.m.frames === 0) S.m.start = performance.now();
   S.m.frames++;
-  const list = (res.landmarks || []).map((pts) => pts.map((p) => ({ x: (S.mirror ? 1 - p.x : p.x) * w, y: p.y * h })));
+  // z : profondeur, à la même échelle que x (positif = plus loin de la caméra)
+  const list = (res.landmarks || []).map((pts) => pts.map((p) => ({ x: (S.mirror ? 1 - p.x : p.x) * w, y: p.y * h, z: p.z * w })));
   S.hands = list.length ? smoothHands(list) : null;
+  if (S.use3d && R3 === null) init3D();
   const found = drawHands(S.hands);
+  render3D(S.hands, w, h);
   if (S.points && S.hands) drawPoints(S.hands.flat());
   if (found) { S.m.found++; if (S.m.first === null) S.m.first = performance.now() - S.m.start; }
   setState(found ? "ok" : "search");
@@ -830,7 +939,7 @@ function redrawStill() {
   if (!S.media) return;
   const [w, h] = mediaSize(S.media);
   if (S.target === "hand") {
-    drawFrame(S.media, w, h); drawHands(S.hands);
+    drawFrame(S.media, w, h); drawHands(S.hands); render3D(S.hands, w, h);
     if (S.points && S.hands) drawPoints(S.hands.flat());
     return;
   }
@@ -951,11 +1060,19 @@ function setTarget(t) {
   $("gBody").setAttribute("aria-pressed", t === "body");
   $("gHand").setAttribute("aria-pressed", t === "hand");
   $("hint").textContent = HINTS[t];
+  $("t3d").hidden = t !== "hand";
+  $("view3d").hidden = t !== "hand" || !R3;
+  if (t === "hand" && S.use3d) init3D();
   S.selected = null; $("card").hidden = true; S.shapes = []; S.hands = null; S.landmarks = null; S.smooth = null;
   resetMetrics(); hideMsg();
   configureHands().then(() => { if (S.media && (S.source === "image" || S.paused)) analyse(performance.now()); });
 }
 $("gBody").onclick = () => setTarget("body");
+$("t3d").onclick = () => {
+  S.use3d = !S.use3d; $("t3d").setAttribute("aria-pressed", S.use3d);
+  if (S.use3d) init3D();
+  if (S.source === "image" || S.paused) redrawStill();
+};
 $("gHand").onclick = () => setTarget("hand");
 
 /* ---------- toucher : nom de la structure ---------- */
@@ -963,8 +1080,10 @@ canvas.addEventListener("click", (e) => {
   const rc = canvas.getBoundingClientRect();
   const x = (e.clientX - rc.left) * (canvas.width / rc.width), y = (e.clientY - rc.top) * (canvas.height / rc.height);
   let hit = null;
+  const k3 = pick3D(x, y);
+  if (k3) hit = { key: k3, layer: "bones" };
   // les os sont dessinés par-dessus : on les teste d'abord
-  const order = [...S.shapes].reverse();
+  const order = hit ? [] : [...S.shapes].reverse();
   for (const sh of order) {
     let inside;
     if (sh.how === "stroke") { ctx.save(); ctx.lineWidth = sh.lw * 1.6; inside = ctx.isPointInStroke(sh.path, x, y); ctx.restore(); }
@@ -1005,7 +1124,7 @@ function metricsRows() {
     if (S.source === "image") rows.push(["Main détectée", m.found ? "oui" : "non"]);
     else rows.push(["Images analysées", m.frames], ["Main calée", pct + " %"], ["1ʳᵉ détection", m.first === null ? "—" : (m.first / 1000).toFixed(1) + " s"], ["Images / s", m.fps.toFixed(0)]);
     rows.push(["Moteur", S.engine || "—"], ["Taille source", rw ? `${rw}×${rh}` : "—"], ["Mode", "main"],
-      ["Mains vues", S.hands ? S.hands.length : 0], ["Détection main", S.handMs === null ? "—" : Math.round(S.handMs) + " ms"]);
+      ["Rendu", S.use3d ? (R3 ? "3D" : S.err3d ? "2D (3D en erreur)" : "3D en chargement") : "2D"], ["Mains vues", S.hands ? S.hands.length : 0], ["Détection main", S.handMs === null ? "—" : Math.round(S.handMs) + " ms"]);
     return rows;
   }
   rows.push(["Moteur", S.engine || "—"], ["Taille source", rw ? `${rw}×${rh}` : "—"], ["Hanches", S.hipsEstimated ? "estimées" : "vues"]);
@@ -1028,7 +1147,7 @@ function renderMetrics() {
 }
 
 /* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
-const VERSION = "v0.9";
+const VERSION = "v0.10";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
   const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer] + (S.target === "hand" ? " · Mode : main" : " · Mode : corps");
@@ -1049,6 +1168,7 @@ function testImage(text) {
   const o = out.getContext("2d");
   o.fillStyle = "#0b1014"; o.fillRect(0, 0, out.width, out.height);
   if (canvas.width) o.drawImage(canvas, 0, 0);
+  if (S.target === "hand" && R3 && S.use3d) o.drawImage($("view3d"), 0, 0);
   o.fillStyle = "#e8eef0"; o.font = `${fs}px "IBM Plex Mono", monospace`; o.textBaseline = "top";
   lines.forEach((l, i) => o.fillText(l, pad, h + pad + i * lh, w - pad * 2));
   return new Promise((res) => out.toBlob(res, "image/png"));
