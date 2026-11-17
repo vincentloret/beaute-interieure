@@ -116,7 +116,7 @@ button { line-height: 1.2; }
 <body>
 <div class="app">
   <header class="top">
-    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.10</span></div>
+    <div class="brand"><b>Beauté intérieure</b><span>Prototype de calage · v0.10.1</span></div>
     <button class="state" id="stateBtn" data-s="load" aria-expanded="false" aria-controls="metrics"><i class="dot"></i><span id="stateTxt">Chargement…</span></button>
   </header>
 
@@ -568,7 +568,7 @@ function drawHand(H) {
   };
   const base = (m) => V.lerp(H[0], H[m], 0.3);   // départ des métacarpiens, au bout du carpe
 
-  if (showM) {
+  if (showM && !(S.use3d && R3)) {
     const a = showB ? 0.55 : 0.78;
     const mF = (p, key) => fill(p, C.muscle, "#7d1f1b", a, "muscles", key);
     mF(ellipsePath(V.lerp(V.lerp(H[1], H[2], 0.4), H[5], 0.25), V.sub(H[2], H[0]), V.len(V.sub(H[2], H[0])) * 0.42, s * 0.2), "thenar");
@@ -636,17 +636,18 @@ async function init3D() {
       renderer, scene, camera, pool: [], used: 0, w: 0, h: 0, Y: new THREE.Vector3(0, 1, 0),
       mat: new THREE.MeshStandardMaterial({ color: 0xf1e7d0, roughness: 0.55, metalness: 0 }),
       hi: new THREE.MeshStandardMaterial({ color: 0x58c4b8, roughness: 0.5, metalness: 0 }),
+      musc: new THREE.MeshStandardMaterial({ color: 0xd4473f, roughness: 0.7, metalness: 0, transparent: true, opacity: 0.6, depthWrite: false }),
       cyl: new THREE.CylinderGeometry(1, 1, 1, 16, 1), sph: new THREE.SphereGeometry(1, 18, 14),
     };
     if (S.target === "hand") $("view3d").hidden = false;
   } catch (e) { R3 = null; S.use3d = false; S.err3d = e && e.message; $("t3d").hidden = true; }
   return R3;
 }
-function mesh3(geo, key) {
+function mesh3(geo, key, layer = "bones") {
   let m = R3.pool[R3.used];
   if (!m) { m = new THREE.Mesh(geo, R3.mat); R3.pool.push(m); R3.scene.add(m); }
-  m.geometry = geo; m.visible = true; m.userData.key = key;
-  m.material = S.selected && S.selected.key === key ? R3.hi : R3.mat;
+  m.geometry = geo; m.visible = true; m.userData.key = key; m.userData.layer = layer;
+  m.material = S.selected && S.selected.key === key ? R3.hi : layer === "muscles" ? R3.musc : R3.mat;
   R3.used++;
   return m;
 }
@@ -659,7 +660,7 @@ function bone3(a, b, r, key) {
   m.quaternion.setFromUnitVectors(R3.Y, d.clone().normalize());
   for (const e of [a, b]) { const q = mesh3(R3.sph, key); q.position.copy(e); q.scale.set(r * 0.95, r * 0.95, r * 0.95); q.quaternion.identity(); }
 }
-function buildHand3D(H) {
+function buildHand3D(H, showB, showM) {
   const s = H[9].distanceTo(H[0]);
   if (s < 10) return;
   const axis = new THREE.Vector3().subVectors(H[9], H[0]).normalize();
@@ -669,10 +670,23 @@ function buildHand3D(H) {
   const wW = H[5].distanceTo(H[17]) * 0.8;
   const P = (v) => v.clone();
   const lerp = (a, b, t) => a.clone().lerp(b, t);
-  // radius et ulna
+  // muscles de la paume : ellipsoïdes aplatis dans le plan de la main (ils suivent la 3D, comme les os)
+  if (showM) {
+    const musc = (c, along, rx, ry, key) => {
+      const a = along.clone().normalize(), n2 = new THREE.Vector3().crossVectors(normal, a).normalize();
+      const m = mesh3(R3.sph, key, "muscles"); m.position.copy(c); m.scale.set(rx, ry, s * 0.06);
+      m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(a, n2, normal));
+    };
+    musc(lerp(lerp(H[1], H[2], 0.4), H[5], 0.25), new THREE.Vector3().subVectors(H[2], H[0]), H[2].distanceTo(H[0]) * 0.42, s * 0.2, "thenar");
+    musc(lerp(lerp(H[0], H[17], 0.5), H[9], 0.15), new THREE.Vector3().subVectors(H[17], H[0]), H[17].distanceTo(H[0]) * 0.42, s * 0.13, "hypothenar");
+    const b0 = (m) => lerp(H[0], H[m], 0.3);
+    for (const [m1, m2] of [[5, 9], [9, 13], [13, 17]]) musc(lerp(lerp(b0(m1), H[m1], 0.55), lerp(b0(m2), H[m2], 0.55), 0.5), axis, s * 0.27, s * 0.05, "interosseux");
+  }
+  if (!showB) return;
+  // radius et ulna : courts, car le coude n'est pas visible et on ne connaît pas l'axe exact de l'avant-bras
   for (const [g, r] of [[0.28, 0.065], [-0.28, 0.05]]) {
     const o = across.clone().multiplyScalar(g * wW);
-    bone3(P(H[0]).addScaledVector(axis, -s * 0.75).add(o), P(H[0]).addScaledVector(axis, -s * 0.1).add(o), s * r, "avantbras");
+    bone3(P(H[0]).addScaledVector(axis, -s * 0.45).add(o), P(H[0]).addScaledVector(axis, -s * 0.1).add(o), s * r, "avantbras");
   }
   // carpe : deux rangées de 4 petits os, aplatis dans le plan de la paume
   const q = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(across, axis, normal));
@@ -704,7 +718,7 @@ function render3D(hands, w, h) {
     R3.w = w; R3.h = h;
   }
   R3.used = 0;
-  if (hands && S.use3d && S.layer !== "muscles") for (const H of hands) buildHand3D(H.map((p) => new THREE.Vector3(p.x, -p.y, -(p.z || 0))));
+  if (hands && S.use3d) for (const H of hands) buildHand3D(H.map((p) => new THREE.Vector3(p.x, -p.y, -(p.z || 0))), S.layer !== "muscles", S.layer !== "bones");
   for (let i = R3.used; i < R3.pool.length; i++) R3.pool[i].visible = false;
   R3.renderer.render(R3.scene, R3.camera);
 }
@@ -712,8 +726,9 @@ function pick3D(x, y) {
   if (!R3 || !S.use3d || S.target !== "hand" || !R3.used) return null;
   const ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2(x / R3.w * 2 - 1, -(y / R3.h * 2 - 1)), R3.camera);
+  ray.ray.origin.z = 1e5;   // le rayon part de devant toute la main (certains points ont une profondeur positive)
   const hit = ray.intersectObjects(R3.pool.filter((m) => m.visible), false)[0];
-  return hit ? hit.object.userData.key : null;
+  return hit ? { key: hit.object.userData.key, layer: hit.object.userData.layer } : null;
 }
 
 function drawNames(L, s) {
@@ -856,7 +871,7 @@ function smoothHands(list) {
   return list.map((H, j) => {
     const prev = S.hands[j], sz = V.len(V.sub(H[9], H[0])) || 50;
     return H.map((p, i) => {
-      const q = prev[i], a = Math.min(1, 0.4 + Math.hypot(p.x - q.x, p.y - q.y) / (0.15 * sz));
+      const q = prev[i], a = Math.min(1, 0.55 + Math.hypot(p.x - q.x, p.y - q.y) / (0.1 * sz));
       return { x: q.x + (p.x - q.x) * a, y: q.y + (p.y - q.y) * a, z: q.z + (p.z - q.z) * a };
     });
   });
@@ -1081,7 +1096,7 @@ canvas.addEventListener("click", (e) => {
   const x = (e.clientX - rc.left) * (canvas.width / rc.width), y = (e.clientY - rc.top) * (canvas.height / rc.height);
   let hit = null;
   const k3 = pick3D(x, y);
-  if (k3) hit = { key: k3, layer: "bones" };
+  if (k3) hit = k3;
   // les os sont dessinés par-dessus : on les teste d'abord
   const order = hit ? [] : [...S.shapes].reverse();
   for (const sh of order) {
@@ -1147,7 +1162,7 @@ function renderMetrics() {
 }
 
 /* ---------- enregistrer le test : capture + mesures, à joindre ensuite à la discussion ---------- */
-const VERSION = "v0.10";
+const VERSION = "v0.10.1";
 function testReport() {
   const src = { image: "photo", video: "vidéo filmée", live: S.mirror ? "caméra en direct (selfie)" : "caméra en direct" }[S.source] || "aucune";
   const calque = { bones: "os", muscles: "muscles", both: "os + muscles" }[S.layer] + (S.target === "hand" ? " · Mode : main" : " · Mode : corps");
